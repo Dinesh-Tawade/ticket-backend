@@ -1,13 +1,11 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
-const path = require('path');
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
 
-// Helper to delete old image
 const deleteOldImage = (imagePath) => {
   if (imagePath && fs.existsSync(imagePath)) {
     fs.unlinkSync(imagePath);
@@ -15,7 +13,6 @@ const deleteOldImage = (imagePath) => {
 };
 
 // @desc    Register user
-// @route   POST /api/auth/register
 const register = async (req, res) => {
   try {
     const { name, email, password, phone, address, role, theaterName, theaterLocation, vendorType } = req.body;
@@ -40,7 +37,6 @@ const register = async (req, res) => {
       status
     };
 
-    // Add profile image if uploaded
     if (req.file) {
       userData.profileImage = req.file.path.replace(/\\/g, '/');
     }
@@ -59,18 +55,21 @@ const register = async (req, res) => {
     res.status(201).json({
       success: true,
       _id: user._id,
-      name: user.name,
+      name: user.name,        // Auto-decrypted by getter
       email: user.email,
+      phone: user.phone,      // Auto-decrypted
+      address: user.address,  // Auto-decrypted
       role: user.role,
       status: user.status,
       profileImage: user.profileImage,
+      theaterName: user.theaterName,
+      theaterLocation: user.theaterLocation,
       message: status === 'PENDING' 
         ? 'Registration successful! Waiting for admin approval.' 
         : 'Registration successful!',
       token: generateToken(user._id)
     });
   } catch (error) {
-    // Delete uploaded file if error occurs
     if (req.file) {
       deleteOldImage(req.file.path);
     }
@@ -79,7 +78,6 @@ const register = async (req, res) => {
 };
 
 // @desc    Login user
-// @route   POST /api/auth/login
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -104,8 +102,10 @@ const login = async (req, res) => {
     res.json({
       success: true,
       _id: user._id,
-      name: user.name,
+      name: user.name,        // Auto-decrypted
       email: user.email,
+      phone: user.phone,      // Auto-decrypted
+      address: user.address,  // Auto-decrypted
       role: user.role,
       status: user.status,
       profileImage: user.profileImage,
@@ -117,7 +117,6 @@ const login = async (req, res) => {
 };
 
 // @desc    Get current user
-// @route   GET /api/auth/me
 const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');
@@ -127,8 +126,7 @@ const getMe = async (req, res) => {
   }
 };
 
-// @desc    Update profile with image
-// @route   PUT /api/auth/update-profile
+// @desc    Update profile
 const updateProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -137,15 +135,12 @@ const updateProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Update fields
     const { name, phone, address } = req.body;
     if (name) user.name = name;
     if (phone) user.phone = phone;
     if (address) user.address = address;
 
-    // Update profile image if uploaded
     if (req.file) {
-      // Delete old image if exists
       if (user.profileImage && fs.existsSync(user.profileImage)) {
         deleteOldImage(user.profileImage);
       }

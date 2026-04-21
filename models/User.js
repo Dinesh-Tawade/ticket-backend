@@ -1,11 +1,27 @@
 ﻿const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const CryptoJS = require('crypto-js');
+
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+
+// Encryption helper functions
+const encrypt = (text) => {
+  if (!text) return null;
+  return CryptoJS.AES.encrypt(text, ENCRYPTION_KEY).toString();
+};
+
+const decrypt = (ciphertext) => {
+  if (!ciphertext) return null;
+  const bytes = CryptoJS.AES.decrypt(ciphertext, ENCRYPTION_KEY);
+  return bytes.toString(CryptoJS.enc.Utf8);
+};
 
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
     required: [true, 'Name is required'],
-    trim: true
+    set: encrypt,
+    get: decrypt
   },
   email: {
     type: String,
@@ -35,23 +51,29 @@ const userSchema = new mongoose.Schema({
   },
   phone: {
     type: String,
-    default: null
+    default: null,
+    set: encrypt,
+    get: decrypt
   },
   address: {
     type: String,
-    default: null
+    default: null,
+    set: encrypt,
+    get: decrypt
   },
-  // Theater owner specific
   theaterName: {
     type: String,
-    default: null
+    default: null,
+    set: encrypt,
+    get: decrypt
   },
   theaterLocation: {
     type: String,
-    default: null
+    default: null,
+    set: encrypt,
+    get: decrypt
   },
   theaterImages: [String],
-  // Vendor specific
   vendorType: {
     type: String,
     enum: ['FOOD', 'BEVERAGE', 'MERCHANDISE', null],
@@ -62,14 +84,21 @@ const userSchema = new mongoose.Schema({
     ref: 'User'
   },
   approvedAt: Date,
-  rejectionReason: String,
+  rejectionReason: {
+    type: String,
+    default: null,
+    set: encrypt,
+    get: decrypt
+  },
   createdAt: {
     type: Date,
     default: Date.now
   }
+}, {
+  toJSON: { getters: true }, 
+  toObject: { getters: true }
 });
 
-// Hash password before saving
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   this.password = await bcrypt.hash(this.password, 10);

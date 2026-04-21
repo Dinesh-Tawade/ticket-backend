@@ -1,2 +1,8 @@
-./node_modules
-./uploads
+node_modules/
+.next/
+out/
+build/
+.env
+.env.local
+.env.*.local
+uploads/
