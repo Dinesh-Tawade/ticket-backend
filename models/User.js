@@ -17,6 +17,7 @@ const decrypt = (ciphertext) => {
 };
 
 const userSchema = new mongoose.Schema({
+  // Basic Info
   name: {
     type: String,
     required: [true, 'Name is required'],
@@ -46,8 +47,8 @@ const userSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['PENDING', 'APPROVED', 'REJECTED', 'BLOCKED'],
-    default: 'PENDING'
+    enum: ['ACTIVE', 'INACTIVE', 'BLOCKED'],
+    default: 'ACTIVE'
   },
   phone: {
     type: String,
@@ -61,44 +62,112 @@ const userSchema = new mongoose.Schema({
     set: encrypt,
     get: decrypt
   },
-  theaterName: {
-    type: String,
-    default: null,
-    set: encrypt,
-    get: decrypt
-  },
-  theaterLocation: {
-    type: String,
-    default: null,
-    set: encrypt,
-    get: decrypt
-  },
-  theaterImages: [String],
+
+  // ==================== THEATER OWNER SPECIFIC FIELDS ====================
+  theaters: [{
+    theaterName: {
+      type: String,
+      set: encrypt,
+      get: decrypt
+    },
+    theaterLocation: {
+      type: String,
+      set: encrypt,
+      get: decrypt
+    },
+    city: {
+      type: String,
+      set: encrypt,
+      get: decrypt
+    },
+    state: {
+      type: String,
+      set: encrypt,
+      get: decrypt
+    },
+    pincode: {
+      type: String,
+      set: encrypt,
+      get: decrypt
+    },
+    totalScreens: {
+      type: Number,
+      default: 1
+    },
+    contactNumber: {
+      type: String,
+      set: encrypt,
+      get: decrypt
+    },
+    status: {
+      type: String,
+      enum: ['ACTIVE', 'INACTIVE'],
+      default: 'ACTIVE'
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+
+  // ==================== VENDOR SPECIFIC FIELDS ====================
   vendorType: {
     type: String,
     enum: ['FOOD', 'BEVERAGE', 'MERCHANDISE', null],
     default: null
   },
-  approvedBy: {
+  assignedTheater: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+    ref: 'User',
+    default: null
   },
-  approvedAt: Date,
-  rejectionReason: {
+  storeName: {
     type: String,
     default: null,
     set: encrypt,
     get: decrypt
+  },
+  storeLocation: {
+    type: String,
+    default: null,
+    set: encrypt,
+    get: decrypt
+  },
+  gstNumber: {
+    type: String,
+    default: null,
+    set: encrypt,
+    get: decrypt
+  },
+  foodLicenseNumber: {
+    type: String,
+    default: null,
+    set: encrypt,
+    get: decrypt
+  },
+  deliveryTime: {
+    type: Number,
+    default: 15
+  },
+  isOpen: {
+    type: Boolean,
+    default: true
+  },
+
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   },
   createdAt: {
     type: Date,
     default: Date.now
   }
 }, {
-  toJSON: { getters: true }, 
+  toJSON: { getters: true },
   toObject: { getters: true }
 });
 
+// Hash password before saving
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   this.password = await bcrypt.hash(this.password, 10);

@@ -1,62 +1,162 @@
 const User = require('../models/User');
-const fs = require('fs');
 
-const getPendingUsers = async (req, res) => {
-  try {
-    const users = await User.find({ 
-      status: 'PENDING',
-      role: { $ne: 'SUPER_ADMIN' }
-    }).select('-password');
-    
-    res.json({ success: true, count: users.length, data: users });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
+// ==================== CREATE USERS ====================
 
-const approveUser = async (req, res) => {
+const createTheaterOwner = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
-    
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+    const { name, email, password, phone, address, theaters } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: "Name, email and password are required" });
     }
 
-    user.status = 'APPROVED';
-    user.approvedBy = req.user.id;
-    user.approvedAt = Date.now();
-    await user.save();
-
-    res.json({ success: true, message: `User ${user.name} approved successfully`, data: user });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-const rejectUser = async (req, res) => {
-  try {
-    const { reason } = req.body;
-    const user = await User.findById(req.params.id);
-    
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ success: false, message: 'User already exists' });
     }
 
-    user.status = 'REJECTED';
-    user.rejectionReason = reason || 'No reason provided';
-    await user.save();
+    const user = await User.create({
+      name, email, password,
+      phone: phone || null,
+      address: address || null,
+      role: 'THEATER_OWNER',
+      status: 'ACTIVE',
+      theaters: theaters || [],
+      createdBy: req.user ? req.user.id : null
+    });
 
-    res.json({ success: true, message: `User ${user.name} rejected`, data: user });
+    res.status(201).json({
+      success: true,
+      message: 'Theater Owner created successfully',
+      data: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        theaters: user.theaters
+      }
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+const createVendor = async (req, res) => {
+  try {
+    const { name, email, password, phone, address, vendorType, assignedTheater, storeName, storeLocation, gstNumber, foodLicenseNumber, deliveryTime } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: "Name, email and password are required" });
+    }
+
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ success: false, message: 'User already exists' });
+    }
+
+    if (assignedTheater) {
+      const theater = await User.findOne({ _id: assignedTheater, role: 'THEATER_OWNER' });
+      if (!theater) {
+        return res.status(404).json({ success: false, message: 'Assigned theater not found' });
+      }
+    }
+
+    const user = await User.create({
+      name, email, password,
+      phone: phone || null,
+      address: address || null,
+      role: 'VENDOR',
+      status: 'ACTIVE',
+      vendorType: vendorType || null,
+      assignedTheater: assignedTheater || null,
+      storeName: storeName || null,
+      storeLocation: storeLocation || null,
+      gstNumber: gstNumber || null,
+      foodLicenseNumber: foodLicenseNumber || null,
+      deliveryTime: deliveryTime || 15,
+      createdBy: req.user ? req.user.id : null
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Vendor created successfully',
+      data: { _id: user._id, name: user.name, email: user.email, role: user.role }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const createBuyer = async (req, res) => {
+  try {
+    const { name, email, password, phone, address } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: "Name, email and password are required" });
+    }
+
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ success: false, message: 'User already exists' });
+    }
+
+    const user = await User.create({
+      name, email, password,
+      phone: phone || null,
+      address: address || null,
+      role: 'BUYER',
+      status: 'ACTIVE',
+      createdBy: req.user ? req.user.id : null
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Buyer created successfully',
+      data: { _id: user._id, name: user.name, email: user.email, role: user.role }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const createSuperAdmin = async (req, res) => {
+  try {
+    const { name, email, password, phone, address } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: "Name, email and password are required" });
+    }
+
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ success: false, message: 'User already exists' });
+    }
+
+    const user = await User.create({
+      name, email, password,
+      phone: phone || null,
+      address: address || null,
+      role: 'SUPER_ADMIN',
+      status: 'ACTIVE',
+      createdBy: req.user ? req.user.id : null
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Super Admin created successfully',
+      data: { _id: user._id, name: user.name, email: user.email, role: user.role }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== READ USERS ====================
 
 const getAllUsers = async (req, res) => {
   try {
     const { role, status } = req.query;
     let filter = {};
-    
     if (role) filter.role = role;
     if (status) filter.status = status;
     
@@ -67,69 +167,13 @@ const getAllUsers = async (req, res) => {
   }
 };
 
-const createSuperAdmin = async (req, res) => {
+const getUserById = async (req, res) => {
   try {
-    const { name, email, password, phone } = req.body;
-
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ success: false, message: 'User already exists' });
-    }
-
-    const superAdmin = await User.create({
-      name,
-      email,
-      password,
-      phone,
-      role: 'SUPER_ADMIN',
-      status: 'APPROVED'
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Super Admin created successfully',
-      data: {
-        _id: superAdmin._id,
-        name: superAdmin.name,
-        email: superAdmin.email,
-        role: superAdmin.role
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-const updateUserRole = async (req, res) => {
-  try {
-    const { role } = req.body;
-    const user = await User.findById(req.params.id);
-    
+    const user = await User.findById(req.params.id).select('-password');
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-
-    user.role = role;
-    await user.save();
-
-    res.json({ success: true, message: `User role updated to ${role}`, data: user });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-const blockUser = async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-    
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    user.status = user.status === 'BLOCKED' ? 'APPROVED' : 'BLOCKED';
-    await user.save();
-
-    res.json({ success: true, message: `User ${user.status === 'BLOCKED' ? 'blocked' : 'unblocked'}`, data: user });
+    res.json({ success: true, data: user });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -139,28 +183,113 @@ const getUserStats = async (req, res) => {
   try {
     const stats = {
       totalUsers: await User.countDocuments(),
-      pendingUsers: await User.countDocuments({ status: 'PENDING' }),
-      approvedUsers: await User.countDocuments({ status: 'APPROVED' }),
-      blockedUsers: await User.countDocuments({ status: 'BLOCKED' }),
       superAdmins: await User.countDocuments({ role: 'SUPER_ADMIN' }),
       theaterOwners: await User.countDocuments({ role: 'THEATER_OWNER' }),
       vendors: await User.countDocuments({ role: 'VENDOR' }),
-      buyers: await User.countDocuments({ role: 'BUYER' })
+      buyers: await User.countDocuments({ role: 'BUYER' }),
+      activeUsers: await User.countDocuments({ status: 'ACTIVE' })
     };
-    
     res.json({ success: true, data: stats });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// ==================== UPDATE USERS ====================
+
+const updateUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const { name, phone, address, role, status, assignedTheater, storeName, isOpen } = req.body;
+    if (name) user.name = name;
+    if (phone) user.phone = phone;
+    if (address) user.address = address;
+    if (role) user.role = role;
+    if (status) user.status = status;
+    if (assignedTheater) user.assignedTheater = assignedTheater;
+    if (storeName) user.storeName = storeName;
+    if (isOpen !== undefined) user.isOpen = isOpen;
+
+    await user.save();
+    res.json({ success: true, message: 'User updated successfully', data: user });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const updateUserStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    user.status = status;
+    await user.save();
+    res.json({ success: true, message: `User status updated to ${status}` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const addTheaterToOwner = async (req, res) => {
+  try {
+    const theaterOwner = await User.findById(req.params.theaterOwnerId);
+    if (!theaterOwner || theaterOwner.role !== 'THEATER_OWNER') {
+      return res.status(404).json({ success: false, message: 'Theater owner not found' });
+    }
+
+    const { theaterName, theaterLocation, city, state, pincode, totalScreens, contactNumber } = req.body;
+    theaterOwner.theaters.push({
+      theaterName, theaterLocation,
+      city: city || null, state: state || null,
+      pincode: pincode || null,
+      totalScreens: totalScreens || 1,
+      contactNumber: contactNumber || null,
+      status: 'ACTIVE'
+    });
+
+    await theaterOwner.save();
+    res.json({ success: true, message: 'Theater added successfully', data: theaterOwner.theaters });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== DELETE USERS ====================
+
+const deleteUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    if (user._id.toString() === req.user.id) {
+      return res.status(400).json({ success: false, message: 'Cannot delete your own account' });
+    }
+    await user.deleteOne();
+    res.json({ success: true, message: 'User deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== EXPORT ALL ====================
+
 module.exports = {
-  getPendingUsers,
-  approveUser,
-  rejectUser,
-  getAllUsers,
+  createTheaterOwner,
+  createVendor,
+  createBuyer,
   createSuperAdmin,
-  updateUserRole,
-  blockUser,
-  getUserStats
+  getAllUsers,
+  getUserById,
+  getUserStats,
+  updateUser,
+  updateUserStatus,
+  addTheaterToOwner,
+  deleteUser
 };

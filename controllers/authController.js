@@ -3,7 +3,9 @@ const jwt = require('jsonwebtoken');
 const fs = require('fs');
 
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: "30d",
+  });
 };
 
 const deleteOldImage = (imagePath) => {
@@ -12,42 +14,45 @@ const deleteOldImage = (imagePath) => {
   }
 };
 
-// @desc    Register user
+// @desc    Register Buyer (Only BUYER can self-register)
+// @route   POST /api/auth/register
 const register = async (req, res) => {
   try {
-    const { name, email, password, phone, address, role, theaterName, theaterLocation, vendorType } = req.body;
+    const { name, email, password, confirmPassword, phone, address } = req.body;
 
+    // Validation
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: "Please add all fields" });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ success: false, message: "Password and confirm password do not match" });
+    }
+
+    // Check if user exists
     const userExists = await User.findOne({ email });
     if (userExists) {
-      return res.status(400).json({ message: 'User already exists' });
+      return res.status(400).json({ success: false, message: "User already exists" });
     }
 
-    let status = 'APPROVED';
-    if (role === 'THEATER_OWNER' || role === 'VENDOR') {
-      status = 'PENDING';
-    }
-
+    // Create user - ONLY BUYER ROLE
     const userData = {
       name,
       email,
       password,
-      phone,
-      address,
-      role: role || 'BUYER',
-      status
+      phone: phone || null,
+      address: address || null,
+      role: 'BUYER',
+      status: 'ACTIVE'
     };
 
+    // Add profile image if uploaded
     if (req.file) {
       userData.profileImage = req.file.path.replace(/\\/g, '/');
-    }
-
-    if (role === 'THEATER_OWNER') {
-      userData.theaterName = theaterName;
-      userData.theaterLocation = theaterLocation;
-    }
-
-    if (role === 'VENDOR') {
-      userData.vendorType = vendorType;
     }
 
     const user = await User.create(userData);
@@ -55,18 +60,14 @@ const register = async (req, res) => {
     res.status(201).json({
       success: true,
       _id: user._id,
-      name: user.name,        // Auto-decrypted by getter
+      name: user.name,
       email: user.email,
-      phone: user.phone,      // Auto-decrypted
-      address: user.address,  // Auto-decrypted
+      phone: user.phone,
+      address: user.address,
       role: user.role,
       status: user.status,
       profileImage: user.profileImage,
-      theaterName: user.theaterName,
-      theaterLocation: user.theaterLocation,
-      message: status === 'PENDING' 
-        ? 'Registration successful! Waiting for admin approval.' 
-        : 'Registration successful!',
+      message: "Registration successful!",
       token: generateToken(user._id)
     });
   } catch (error) {
@@ -77,38 +78,45 @@ const register = async (req, res) => {
   }
 };
 
-// @desc    Login user
+// @desc    Login user (Anyone - BUYER, THEATER_OWNER, VENDOR, SUPER_ADMIN)
+// @route   POST /api/auth/login
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: "Please add all fields" });
+    }
+
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
 
     const isPasswordMatch = await user.comparePassword(password);
     if (!isPasswordMatch) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
 
-    if (user.status !== 'APPROVED') {
+    if (user.status !== 'ACTIVE') {
       return res.status(403).json({ 
-        success: false,
-        message: `Your account is ${user.status}. Please wait for admin approval.` 
+        success: false, 
+        message: `Your account is ${user.status}. Please contact admin.` 
       });
     }
 
     res.json({
       success: true,
       _id: user._id,
-      name: user.name,        // Auto-decrypted
+      name: user.name,
       email: user.email,
-      phone: user.phone,      // Auto-decrypted
-      address: user.address,  // Auto-decrypted
+      phone: user.phone,
+      address: user.address,
       role: user.role,
       status: user.status,
       profileImage: user.profileImage,
+      ...(user.role === 'THEATER_OWNER' && { theaters: user.theaters }),
+      ...(user.role === 'VENDOR' && { storeName: user.storeName, vendorType: user.vendorType, isOpen: user.isOpen }),
       token: generateToken(user._id)
     });
   } catch (error) {
@@ -116,10 +124,18 @@ const login = async (req, res) => {
   }
 };
 
-// @desc    Get current user
+// @desc    Get current user profile
+// @route   GET /api/auth/me
 const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const user = await User.findById(req.user.id)
+      .select("-password")
+      .populate("assignedTheater", "name email");
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
     res.json({ success: true, data: user });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -127,15 +143,17 @@ const getMe = async (req, res) => {
 };
 
 // @desc    Update profile
+// @route   PUT /api/auth/update-profile
 const updateProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
     const { name, phone, address } = req.body;
+    
     if (name) user.name = name;
     if (phone) user.phone = phone;
     if (address) user.address = address;
@@ -151,16 +169,8 @@ const updateProfile = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Profile updated successfully',
-      data: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        address: user.address,
-        profileImage: user.profileImage,
-        role: user.role
-      }
+      message: "Profile updated successfully",
+      data: user
     });
   } catch (error) {
     if (req.file) {
