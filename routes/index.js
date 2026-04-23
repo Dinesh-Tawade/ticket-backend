@@ -1,14 +1,8 @@
 const express = require('express');
 const { protect, authorize } = require('../middleware/auth');
 const { uploadSingle } = require('../middleware/upload');
-
-// Auth Controllers
 const { register, login, getMe, updateProfile } = require('../controllers/authController');
-
-// User Controllers
 const { registerBuyer, loginBuyer, getBuyerProfile } = require('../controllers/userController');
-
-// Admin Controllers - Sab imports sahi se check karo
 const {
   createTheaterOwner,
   createVendor,
@@ -57,36 +51,37 @@ router.post('/admin/add-theater/:theaterOwnerId', protect, authorize('SUPER_ADMI
 
 router.delete('/admin/users/:id', protect, authorize('SUPER_ADMIN'), deleteUser);
 
-// ==================== SETUP ROUTE ====================
-router.post('/setup/create-super-admin', async (req, res) => {
-  try {
-    const User = require('../models/User');
-    const { name, email, password, phone, address } = req.body;
+
+
+// router.post('/setup/create-super-admin', async (req, res) => {
+//   try {
+//     const User = require('../models/User');
+//     const { name, email, password, phone, address } = req.body;
     
-    const existingAdmin = await User.findOne({ role: 'SUPER_ADMIN' });
-    if (existingAdmin) {
-      return res.status(400).json({ success: false, message: 'Super Admin already exists!' });
-    }
+//     const existingAdmin = await User.findOne({ role: 'SUPER_ADMIN' });
+//     if (existingAdmin) {
+//       return res.status(400).json({ success: false, message: 'Super Admin already exists!' });
+//     }
     
-    const superAdmin = await User.create({
-      name: name || 'Super Admin',
-      email: email || 'superadmin@bookingapp.com',
-      password: password || 'SuperAdmin123!',
-      phone: phone || '9999999999',
-      address: address || 'Admin Office',
-      role: 'SUPER_ADMIN',
-      status: 'ACTIVE'
-    });
+//     const superAdmin = await User.create({
+//       name: name || 'Super Admin',
+//       email: email || 'superadmin@bookingapp.com',
+//       password: password || 'SuperAdmin123!',
+//       phone: phone || '9999999999',
+//       address: address || 'Admin Office',
+//       role: 'SUPER_ADMIN',
+//       status: 'ACTIVE'
+//     });
     
-    res.status(201).json({
-      success: true,
-      message: 'Super Admin created successfully!',
-      data: { _id: superAdmin._id, name: superAdmin.name, email: superAdmin.email, role: superAdmin.role }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+//     res.status(201).json({
+//       success: true,
+//       message: 'Super Admin created successfully!',
+//       data: { _id: superAdmin._id, name: superAdmin.name, email: superAdmin.email, role: superAdmin.role }
+//     });
+//   } catch (error) {
+//     res.status(500).json({ success: false, message: error.message });
+//   }
+// });
 
 router.use('/uploads', express.static('uploads'));
 
