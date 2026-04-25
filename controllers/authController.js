@@ -124,6 +124,15 @@ const login = async (req, res) => {
   }
 };
 
+const logOut = async (req, res) => {
+  try {
+    // Clear token on client side by sending a response
+    res.json({ success: true, message: "Logged out successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // @desc    Get current user profile
 // @route   GET /api/auth/me
 const getMe = async (req, res) => {
@@ -180,4 +189,4 @@ const updateProfile = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, updateProfile };
+module.exports = { register, login, getMe, updateProfile, logOut };

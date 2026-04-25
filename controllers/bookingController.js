@@ -342,6 +342,95 @@ const autoCancelExpiredBookings = async () => {
     console.error('Auto-cancel error:', error);
   }
 };
+// @desc    Get All Active Shows (Public)
+// @route   GET /api/public/shows
+const getAllShows = async (req, res) => {
+  try {
+    // Filter options
+    let filter = {
+      status: 'BOOKING_OPEN',  // Sirf booking open shows
+      showDate: { $gte: new Date() } // Aaj aur future ke shows
+    };
+    
+    // Optional filters (agar query params se filter karna ho)
+    const { date, movieId, theaterId, city } = req.query;
+    
+    if (date) {
+      const startDate = new Date(date);
+      const endDate = new Date(date);
+      endDate.setDate(endDate.getDate() + 1);
+      filter.showDate = { $gte: startDate, $lt: endDate };
+    }
+    
+    if (movieId) {
+      filter['movie.movieId'] = movieId;
+    }
+    
+    if (theaterId) {
+      filter.theaterId = theaterId;
+    }
+    
+    if (city) {
+      filter.city = city;
+    }
+    
+    const shows = await Show.find(filter)
+      .populate('theaterId', 'name location city address') // Theater details
+      .sort({ showDate: 1, startTime: 1 }); // Date aur time ke hisaab se sort
+    
+    res.json({
+      success: true,
+      count: shows.length,
+      data: shows
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get Shows by Movie (Public)
+// @route   GET /api/public/shows/movie/:movieId
+const getShowsByMovie = async (req, res) => {
+  try {
+    const shows = await Show.find({
+      'movie.movieId': req.params.movieId,
+      status: 'BOOKING_OPEN',
+      showDate: { $gte: new Date() }
+    })
+    .populate('theaterId', 'name location city address')
+    .sort({ showDate: 1, startTime: 1 });
+    
+    res.json({
+      success: true,
+      count: shows.length,
+      data: shows
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get Shows by Theater (Public)
+// @route   GET /api/public/shows/theater/:theaterId
+const getShowsByTheater = async (req, res) => {
+  try {
+    const shows = await Show.find({
+      theaterId: req.params.theaterId,
+      status: 'BOOKING_OPEN',
+      showDate: { $gte: new Date() }
+    })
+    .populate('theaterId', 'name location city address')  
+    .sort({ showDate: 1, startTime: 1 });
+    
+    res.json({
+      success: true,
+      count: shows.length,
+      data: shows
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
 module.exports = {
   getAvailableSeats,
@@ -350,5 +439,8 @@ module.exports = {
   getMyBookings,
   cancelBooking,
   getAllBookings,
-  autoCancelExpiredBookings
+  autoCancelExpiredBookings,
+  getAllShows,
+  getShowsByMovie,
+  getShowsByTheater
 };

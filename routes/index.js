@@ -3,7 +3,7 @@ const { protect, authorize } = require('../middleware/auth');
 const { uploadSingle } = require('../middleware/upload');
 
 // Auth Controllers
-const { register, login, getMe, updateProfile } = require('../controllers/authController');
+const { register, login, getMe, updateProfile, logOut } = require('../controllers/authController');
 
 // User Controllers
 const { registerBuyer, loginBuyer, getBuyerProfile } = require('../controllers/userController');
@@ -65,6 +65,7 @@ router.get('/', (req, res) => {
 // ==================== PUBLIC ROUTES ====================
 router.post('/auth/register', uploadSingle('profileImage'), register);
 router.post('/auth/login', login);
+router.post('/auth/logout', logOut);
 router.post('/users/register', uploadSingle('profileImage'), registerBuyer);
 router.post('/users/login', loginBuyer);
 
