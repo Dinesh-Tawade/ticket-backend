@@ -44,8 +44,6 @@ const createTheater = async (req, res) => {
   }
 };
 
-// @desc    Get All Theaters
-// @route   GET /api/admin/theater/all
 const getAllTheaters = async (req, res) => {
   try {
     const { city, status } = req.query;
@@ -60,8 +58,7 @@ const getAllTheaters = async (req, res) => {
   }
 };
 
-// @desc    Get Theater by ID
-// @route   GET /api/admin/theater/:id
+ 
 const getTheaterById = async (req, res) => {
   try {
     const theater = await Theater.findById(req.params.id).populate('ownerId', 'name email');
