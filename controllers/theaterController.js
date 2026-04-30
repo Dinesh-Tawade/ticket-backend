@@ -42,6 +42,7 @@ const createTheater = async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+  console.log("Create Theater Request Body:", req.body);
 };
 
 const getAllTheaters = async (req, res) => {
@@ -71,33 +72,56 @@ const getTheaterById = async (req, res) => {
   }
 };
 
-// @desc    Update Theater
-// @route   PUT /api/admin/theater/update/:id
+
 const updateTheater = async (req, res) => {
   try {
     const theater = await Theater.findById(req.params.id);
     if (!theater) {
-      return res.status(404).json({ success: false, message: 'Theater not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Theater not found'
+      });
     }
 
-    const { name, location, city, state, pincode, contactNumber, status } = req.body;
-    if (name) theater.name = name;
-    if (location) theater.location = location;
-    if (city) theater.city = city;
-    if (state) theater.state = state;
-    if (pincode) theater.pincode = pincode;
-    if (contactNumber) theater.contactNumber = contactNumber;
-    if (status) theater.status = status;
+    const {
+      name,
+      location,
+      city,
+      state,
+      pincode,
+      contactNumber,
+      status,
+      screens
+    } = req.body;
+
+    if (name !== undefined) theater.name = name;
+    if (location !== undefined) theater.location = location;
+    if (city !== undefined) theater.city = city;
+    if (state !== undefined) theater.state = state;
+    if (pincode !== undefined) theater.pincode = pincode;
+    if (contactNumber !== undefined) theater.contactNumber = contactNumber;
+    if (status !== undefined) theater.status = status;
+
+    if (screens !== undefined) {
+      theater.screens = screens;
+    }
 
     await theater.save();
-    res.json({ success: true, message: 'Theater updated successfully', data: theater });
+
+    res.json({
+      success: true,
+      message: 'Theater updated successfully',
+      data: theater
+    });
+    // console.log("Update Theater Request Body:", req.body);
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
-// @desc    Add Screen to Theater
-// @route   POST /api/admin/theater/add-screen/:id
 const addScreenToTheater = async (req, res) => {
   try {
     const theater = await Theater.findById(req.params.id);
@@ -118,6 +142,26 @@ const addScreenToTheater = async (req, res) => {
 
     await theater.save();
     res.json({ success: true, message: 'Screen added successfully', data: theater.screens });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const deleteScreenFromTheater = async (req, res) => {
+  try {
+    const theater = await Theater.findById(req.params.id);
+    if (!theater) {
+      return res.status(404).json({ success: false, message: 'Theater not found' });
+    }
+
+    const screen = theater.screens.id(req.params.screenId);
+    if (!screen) {
+      return res.status(404).json({ success: false, message: 'Screen not found' });
+    }
+
+    theater.screens.remove(screen);
+    await theater.save();
+    res.json({ success: true, message: 'Screen deleted successfully', data: theater.screens });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -145,10 +189,6 @@ const deleteTheater = async (req, res) => {
   }
 };
 
-// ==================== SHOW MANAGEMENT ====================
-
-// @desc    Create Show
-// @route   POST /api/admin/show/create
 const createShow = async (req, res) => {
   try {
     const {
@@ -245,6 +285,22 @@ const getAllShows = async (req, res) => {
   }
 };
 
+const getDetailedShowById = async (req, res) => {
+  try {
+    const show = await Show.findById(req.params.id)
+      .populate('theaterId', 'name location')
+      .populate('createdBy', 'name email');
+
+    if (!show) {
+      return res.status(404).json({ success: false, message: 'Show not found' });
+    }
+
+    res.json({ success: true, data: show });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // @desc    Update Show Status
 // @route   PUT /api/admin/show/update-status/:id
 const updateShowStatus = async (req, res) => {
@@ -297,5 +353,7 @@ module.exports = {
   createShow,
   getAllShows,
   updateShowStatus,
-  deleteShow
+  deleteShow,
+  deleteScreenFromTheater,
+  getDetailedShowById
 };

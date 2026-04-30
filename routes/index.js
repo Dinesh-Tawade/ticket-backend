@@ -3,7 +3,7 @@ const { protect, authorize } = require('../middleware/auth');
 const { uploadSingle } = require('../middleware/upload');
 
 // Auth Controllers
-const { register, login, getMe, updateProfile, logOut } = require('../controllers/authController');
+const { register, login, getMe, updateProfile } = require('../controllers/authController');
 
 // User Controllers
 const { registerBuyer, loginBuyer, getBuyerProfile } = require('../controllers/userController');
@@ -23,18 +23,20 @@ const {
   deleteUser
 } = require('../controllers/adminController');
 
-// Theater Controllers
+// Theater Controllers (Admin)
 const {
   createTheater,
-  getAllTheaters,
-  getTheaterById,
-  updateTheater,
+  getAllTheaters: adminGetAllTheaters,
+  getTheaterById: adminGetTheaterById,
+  updateTheater: adminUpdateTheater,
   addScreenToTheater,
-  deleteTheater,
+  deleteTheater: adminDeleteTheater,
+  deleteScreenFromTheater,
   createShow,
-  getAllShows,
-  updateShowStatus,
-  deleteShow
+  getAllShows: adminGetAllShows,
+  updateShowStatus: adminUpdateShowStatus,
+  deleteShow: adminDeleteShow,
+  getDetailedShowById
 } = require('../controllers/theaterController');
 
 // Booking Controllers
@@ -51,9 +53,29 @@ const {
 const {
   getAllShows: publicGetAllShows,
   getTrendingShows,
-  getShowById,
+  getShowById: publicGetShowById,
   getAllTheaters: publicGetAllTheaters
 } = require('../controllers/publicController');
+
+// Theater Owner Controllers
+const {
+  getMyTheaters,
+  getTheaterById: ownerGetTheaterById,
+  updateTheater: ownerUpdateTheater,
+  deleteTheater: ownerDeleteTheater,
+  getScreens,
+  getScreenById,
+  addScreen,
+  updateScreen,
+  deleteScreen,
+  getMyShows,
+  getTheaterShows,
+  getShowById: ownerGetShowById,
+  updateShowStatus: ownerUpdateShowStatus,
+  getMyTheaterBookings,
+  getTheaterBookings,
+  getDashboardStats
+} = require('../controllers/theaterOwnerController');
 
 const router = express.Router();
 
@@ -65,18 +87,17 @@ router.get('/', (req, res) => {
 // ==================== PUBLIC ROUTES ====================
 router.post('/auth/register', uploadSingle('profileImage'), register);
 router.post('/auth/login', login);
-router.post('/auth/logout', logOut);
 router.post('/users/register', uploadSingle('profileImage'), registerBuyer);
 router.post('/users/login', loginBuyer);
 
 // Public Show Routes (No Auth)
 router.get('/public/shows', publicGetAllShows);
 router.get('/public/shows/trending', getTrendingShows);
-router.get('/public/shows/:id', getShowById);
+router.get('/public/shows/:id', publicGetShowById);
 router.get('/public/theaters', publicGetAllTheaters);
 router.get('/public/shows/:id/seats', getAvailableSeats);
 
-// ==================== PROTECTED ROUTES ====================
+// ==================== PROTECTED ROUTES (All Authenticated Users) ====================
 router.get('/auth/me', protect, getMe);
 router.put('/auth/update-profile', protect, uploadSingle('profileImage'), updateProfile);
 router.get('/users/profile', protect, getBuyerProfile);
@@ -101,24 +122,53 @@ router.put('/admin/update-status/:id', protect, authorize('SUPER_ADMIN'), update
 router.post('/admin/add-theater/:theaterOwnerId', protect, authorize('SUPER_ADMIN'), addTheaterToOwner);
 router.delete('/admin/users/:id', protect, authorize('SUPER_ADMIN'), deleteUser);
 
-// Theater Management
+// Theater Management (Admin)
 router.post('/admin/theater/create', protect, authorize('SUPER_ADMIN'), createTheater);
-router.get('/admin/theater/all', protect, authorize('SUPER_ADMIN'), getAllTheaters);
-router.get('/admin/theater/:id', protect, authorize('SUPER_ADMIN'), getTheaterById);
-router.put('/admin/theater/update/:id', protect, authorize('SUPER_ADMIN'), updateTheater);
+router.get('/admin/theater/all', protect, authorize('SUPER_ADMIN'), adminGetAllTheaters);
+router.get('/admin/theater/:id', protect, authorize('SUPER_ADMIN'), adminGetTheaterById);
+router.put('/admin/theater/update/:id', protect, authorize('SUPER_ADMIN'), adminUpdateTheater);
 router.post('/admin/theater/add-screen/:id', protect, authorize('SUPER_ADMIN'), addScreenToTheater);
-router.delete('/admin/theater/delete/:id', protect, authorize('SUPER_ADMIN'), deleteTheater);
+router.delete('/admin/theater/delete/:id', protect, authorize('SUPER_ADMIN'), adminDeleteTheater);
+router.delete('/admin/theater/delete-screen/:id/:screenId', protect, authorize('SUPER_ADMIN'), deleteScreenFromTheater);
 
-// Show Management
+// Show Management (Admin)
 router.post('/admin/show/create', protect, authorize('SUPER_ADMIN'), createShow);
-router.get('/admin/show/all', protect, authorize('SUPER_ADMIN'), getAllShows);
-router.put('/admin/show/update-status/:id', protect, authorize('SUPER_ADMIN'), updateShowStatus);
-router.delete('/admin/show/delete/:id', protect, authorize('SUPER_ADMIN'), deleteShow);
+router.get('/admin/show/all', protect, authorize('SUPER_ADMIN'), adminGetAllShows);
+router.get('/admin/show/:id', protect, authorize('SUPER_ADMIN'), getDetailedShowById);
+router.put('/admin/show/update-status/:id', protect, authorize('SUPER_ADMIN'), adminUpdateShowStatus);
+router.delete('/admin/show/delete/:id', protect, authorize('SUPER_ADMIN'), adminDeleteShow);
 
 // Booking Management (Admin)
 router.get('/admin/booking/all', protect, authorize('SUPER_ADMIN'), getAllBookings);
 
-// ==================== SETUP ROUTE ====================
+// ==================== THEATER OWNER ROUTES ====================
+// Dashboard
+router.get('/theater-owner/dashboard-stats', protect, authorize('THEATER_OWNER'), getDashboardStats);
+
+// Theater Management
+router.get('/theater-owner/my-theaters', protect, authorize('THEATER_OWNER'), getMyTheaters);
+router.get('/theater-owner/theater/:id', protect, authorize('THEATER_OWNER'), ownerGetTheaterById);
+router.put('/theater-owner/theater/update/:id', protect, authorize('THEATER_OWNER'), ownerUpdateTheater);
+router.delete('/theater-owner/theater/delete/:id', protect, authorize('THEATER_OWNER'), ownerDeleteTheater);
+
+// Screen Management
+router.get('/theater-owner/theater/:theaterId/screens', protect, authorize('THEATER_OWNER'), getScreens);
+router.get('/theater-owner/theater/:theaterId/screen/:screenId', protect, authorize('THEATER_OWNER'), getScreenById);
+router.post('/theater-owner/theater/:theaterId/add-screen', protect, authorize('THEATER_OWNER'), addScreen);
+router.put('/theater-owner/theater/:theaterId/screen/:screenId', protect, authorize('THEATER_OWNER'), updateScreen);
+router.delete('/theater-owner/theater/:theaterId/screen/:screenId', protect, authorize('THEATER_OWNER'), deleteScreen);
+
+// Show Management
+router.get('/theater-owner/my-shows', protect, authorize('THEATER_OWNER'), getMyShows);
+router.get('/theater-owner/theater/:theaterId/shows', protect, authorize('THEATER_OWNER'), getTheaterShows);
+router.get('/theater-owner/show/:id', protect, authorize('THEATER_OWNER'), ownerGetShowById);
+router.put('/theater-owner/show/update-status/:id', protect, authorize('THEATER_OWNER'), ownerUpdateShowStatus);
+
+// Booking Reports
+router.get('/theater-owner/my-bookings', protect, authorize('THEATER_OWNER'), getMyTheaterBookings);
+router.get('/theater-owner/theater/:theaterId/bookings', protect, authorize('THEATER_OWNER'), getTheaterBookings);
+
+// ==================== SETUP ROUTE (First Time Only) ====================
 router.post('/setup/create-super-admin', async (req, res) => {
   try {
     const User = require('../models/User');
