@@ -19,8 +19,14 @@ const storage = multer.diskStorage({
       folder += 'profiles/';
     } else if (file.fieldname === 'theaterImage') {
       folder += 'theaters/';
-    } else if (file.fieldname === 'productImage') {
+    } else if (file.fieldname === 'productImage' || file.fieldname === 'image') {
       folder += 'products/';
+    } else if (file.fieldname === 'storeLogo') {
+      folder += 'vendor/logos/';
+    } else if (file.fieldname === 'moviePoster') {
+      folder += 'movies/';
+    } else if (file.fieldname === 'screenImage') {
+      folder += 'screens/';
     } else {
       folder += 'misc/';
     }
@@ -32,7 +38,10 @@ const storage = multer.diskStorage({
     // Create unique filename: timestamp-randomnumber-originalname
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
-    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
+    // Remove spaces from fieldname and originalname
+    const cleanFieldName = file.fieldname.replace(/\s/g, '');
+    const cleanOriginalName = path.basename(file.originalname, ext).replace(/\s/g, '_');
+    cb(null, cleanFieldName + '-' + uniqueSuffix + ext);
   }
 });
 
@@ -56,10 +65,24 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
-// Single file upload
+// Single file upload (Generic)
 const uploadSingle = (fieldName) => upload.single(fieldName);
 
 // Multiple files upload
 const uploadMultiple = (fields) => upload.fields(fields);
 
-module.exports = { uploadSingle, uploadMultiple, upload };
+// Specific upload handlers for common fields
+const uploadProfileImage = upload.single('profileImage');
+const uploadStoreLogo = upload.single('storeLogo');
+const uploadProductImage = upload.single('image');
+const uploadMoviePoster = upload.single('poster');
+
+module.exports = { 
+  uploadSingle, 
+  uploadMultiple, 
+  upload,
+  uploadProfileImage,
+  uploadStoreLogo,
+  uploadProductImage,
+  uploadMoviePoster
+};

@@ -1,6 +1,6 @@
 const express = require('express');
 const { protect, authorize } = require('../middleware/auth');
-const { uploadSingle } = require('../middleware/upload');
+const { uploadSingle, upload } = require('../middleware/upload');
 
 // Auth Controllers
 const { register, login, getMe, updateProfile } = require('../controllers/authController');
@@ -74,8 +74,40 @@ const {
   updateShowStatus: ownerUpdateShowStatus,
   getMyTheaterBookings,
   getTheaterBookings,
-  getDashboardStats
+  getDashboardStats: ownerDashboardStats
 } = require('../controllers/theaterOwnerController');
+
+// Vendor Controllers
+const storeController = require('../controllers/vendor/storeController');
+const productController = require('../controllers/vendor/productController');
+const orderController = require('../controllers/vendor/orderController');
+const reportController = require('../controllers/vendor/reportController');
+const paymentController = require('../controllers/vendor/paymentController');
+
+// Buyer Food Order Controllers
+const {
+  // Cart
+  addToCart,
+  getCart,
+  updateCartItem,
+  removeFromCart,
+  clearCart,
+  // Order
+  placeOrder,
+  getMyOrders,
+  getOrderDetails,
+  trackOrder,
+  cancelOrder,
+  // Payment
+  processPayment,
+  // Browse
+  getTheaterProducts,
+  getProductCategories
+} = require('../controllers/buyer/foodController');
+
+// Define upload handlers for vendor routes
+const uploadStoreLogo = upload.single('storeLogo');
+const uploadProductImage = upload.single('image');
 
 const router = express.Router();
 
@@ -143,7 +175,7 @@ router.get('/admin/booking/all', protect, authorize('SUPER_ADMIN'), getAllBookin
 
 // ==================== THEATER OWNER ROUTES ====================
 // Dashboard
-router.get('/theater-owner/dashboard-stats', protect, authorize('THEATER_OWNER'), getDashboardStats);
+router.get('/theater-owner/dashboard-stats', protect, authorize('THEATER_OWNER'), ownerDashboardStats);
 
 // Theater Management
 router.get('/theater-owner/my-theaters', protect, authorize('THEATER_OWNER'), getMyTheaters);
@@ -167,6 +199,79 @@ router.put('/theater-owner/show/update-status/:id', protect, authorize('THEATER_
 // Booking Reports
 router.get('/theater-owner/my-bookings', protect, authorize('THEATER_OWNER'), getMyTheaterBookings);
 router.get('/theater-owner/theater/:theaterId/bookings', protect, authorize('THEATER_OWNER'), getTheaterBookings);
+
+// ==================== VENDOR ROUTES ====================
+// Dashboard
+router.get('/vendor/dashboard-stats', protect, authorize('VENDOR'), reportController.getVendorDashboardStats);
+
+// Store Management
+router.post('/vendor/store/create', protect, authorize('VENDOR'), (req, res, next) => {
+  uploadStoreLogo(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    next();
+  });
+}, storeController.createOrUpdateStore);
+
+router.get('/vendor/store', protect, authorize('VENDOR'), storeController.getMyStore);
+router.put('/vendor/store/toggle-status', protect, authorize('VENDOR'), storeController.toggleStoreStatus);
+
+// Product Management
+router.post('/vendor/product/add', protect, authorize('VENDOR'), (req, res, next) => {
+  uploadProductImage(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    next();
+  });
+}, productController.addProduct);
+
+router.get('/vendor/products', protect, authorize('VENDOR'), productController.getMyProducts);
+router.get('/vendor/product/:id', protect, authorize('VENDOR'), productController.getProductById);
+router.put('/vendor/product/update/:id', protect, authorize('VENDOR'), (req, res, next) => {
+  uploadProductImage(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    next();
+  });
+}, productController.updateProduct);
+router.put('/vendor/product/update-stock/:id', protect, authorize('VENDOR'), productController.updateProductStock);
+router.delete('/vendor/product/delete/:id', protect, authorize('VENDOR'), productController.deleteProduct);
+
+// Order Management
+router.get('/vendor/orders', protect, authorize('VENDOR'), orderController.getMyStoreOrders);
+router.get('/vendor/order/:orderId', protect, authorize('VENDOR'), orderController.getOrderDetails);
+router.put('/vendor/order/update-status/:orderId', protect, authorize('VENDOR'), orderController.updateOrderStatus);
+
+// Sales & Reports
+router.get('/vendor/sales-report', protect, authorize('VENDOR'), reportController.getSalesReport);
+
+// Payments
+router.get('/vendor/payments', protect, authorize('VENDOR'), paymentController.getPaymentTransactions);
+
+// ==================== BUYER FOOD ORDER ROUTES ====================
+// Browse Products
+router.get('/buyer/theater/:theaterId/products', protect, authorize('BUYER'), getTheaterProducts);
+router.get('/buyer/categories', protect, authorize('BUYER'), getProductCategories);
+
+// Cart Management
+router.post('/buyer/cart/add', protect, authorize('BUYER'), addToCart);
+router.get('/buyer/cart', protect, authorize('BUYER'), getCart);
+router.put('/buyer/cart/update/:productId', protect, authorize('BUYER'), updateCartItem);
+router.delete('/buyer/cart/remove/:productId', protect, authorize('BUYER'), removeFromCart);
+router.delete('/buyer/cart/clear', protect, authorize('BUYER'), clearCart);
+
+// Order Management
+router.post('/buyer/order/place', protect, authorize('BUYER'), placeOrder);
+router.get('/buyer/orders', protect, authorize('BUYER'), getMyOrders);
+router.get('/buyer/order/:orderId', protect, authorize('BUYER'), getOrderDetails);
+router.get('/buyer/order/track/:orderId', protect, authorize('BUYER'), trackOrder);
+router.put('/buyer/order/cancel/:orderId', protect, authorize('BUYER'), cancelOrder);
+
+// Payment
+router.post('/buyer/order/pay/:orderId', protect, authorize('BUYER'), processPayment);
 
 // ==================== SETUP ROUTE (First Time Only) ====================
 router.post('/setup/create-super-admin', async (req, res) => {
