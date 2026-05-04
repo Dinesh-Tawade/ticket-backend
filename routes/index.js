@@ -105,6 +105,13 @@ const {
   getProductCategories
 } = require('../controllers/buyer/foodController');
 
+const {
+  verifyTicket,
+  markTicketAsUsed,
+  getTicketDetails,
+  getShowTickets
+} = require('../controllers/verificationController');
+
 // Define upload handlers for vendor routes
 const uploadStoreLogo = upload.single('storeLogo');
 const uploadProductImage = upload.single('image');
@@ -128,6 +135,7 @@ router.get('/public/shows/trending', getTrendingShows);
 router.get('/public/shows/:id', publicGetShowById);
 router.get('/public/theaters', publicGetAllTheaters);
 router.get('/public/shows/:id/seats', getAvailableSeats);
+router.post('/verify/ticket', verifyTicket);
 
 // ==================== PROTECTED ROUTES (All Authenticated Users) ====================
 router.get('/auth/me', protect, getMe);
@@ -199,6 +207,7 @@ router.put('/theater-owner/show/update-status/:id', protect, authorize('THEATER_
 // Booking Reports
 router.get('/theater-owner/my-bookings', protect, authorize('THEATER_OWNER'), getMyTheaterBookings);
 router.get('/theater-owner/theater/:theaterId/bookings', protect, authorize('THEATER_OWNER'), getTheaterBookings);
+
 
 // ==================== VENDOR ROUTES ====================
 // Dashboard
@@ -272,6 +281,11 @@ router.put('/buyer/order/cancel/:orderId', protect, authorize('BUYER'), cancelOr
 
 // Payment
 router.post('/buyer/order/pay/:orderId', protect, authorize('BUYER'), processPayment);
+
+
+router.put('/ticket/use/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), markTicketAsUsed);
+router.get('/ticket/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getTicketDetails);
+router.get('/show/:showId/tickets', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getShowTickets);
 
 // ==================== SETUP ROUTE (First Time Only) ====================
 router.post('/setup/create-super-admin', async (req, res) => {
