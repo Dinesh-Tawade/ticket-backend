@@ -9,7 +9,7 @@ const Booking = require('../models/Booking');
 const getMyTheaters = async (req, res) => {
   try {
     const theaters = await Theater.find({ ownerId: req.user.id })
-      .populate('createdBy', 'name email');
+      .populate('createdBy', 'name email _id');
     
     res.json({
       success: true,
@@ -20,6 +20,9 @@ const getMyTheaters = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+
+
 
 // @desc    Get single theater details by ID (only if owner)
 // @route   GET /api/theater-owner/theater/:id

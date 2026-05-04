@@ -102,7 +102,7 @@ const showSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: ['COMING_SOON', 'BOOKING_OPEN', 'HOUSE_FULL', 'COMPLETED', 'CANCELLED'],
-    default: 'COMING_SOON'
+    default: 'BOOKING_OPEN'
   },
   totalSeats: {
     type: Number,

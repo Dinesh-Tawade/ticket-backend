@@ -109,7 +109,7 @@ const createBooking = async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 15);
 
-    // Determine payment status
+   
     let paymentStatus = 'FREE';
     let bookingStatus = 'CONFIRMED';
     

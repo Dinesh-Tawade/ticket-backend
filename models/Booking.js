@@ -1,3 +1,4 @@
+// models/Booking.js
 const mongoose = require('mongoose');
 
 const bookedSeatSchema = new mongoose.Schema({
@@ -48,6 +49,26 @@ const bookingSchema = new mongoose.Schema({
     enum: ['PENDING', 'CONFIRMED', 'CANCELLED', 'EXPIRED'],
     default: 'PENDING'
   },
+  
+  // ========== NEW FIELDS FOR QR & CHECK-IN ==========
+  isCheckedIn: {
+    type: Boolean,
+    default: false
+  },
+  checkedInAt: {
+    type: Date,
+    default: null
+  },
+  checkedInBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  qrCodeGeneratedAt: {
+    type: Date,
+    default: null
+  },
+  
   bookedAt: {
     type: Date,
     default: Date.now
@@ -76,5 +97,11 @@ bookingSchema.pre('save', async function(next) {
   }
   next();
 });
+
+// Add indexes for faster queries
+bookingSchema.index({ bookingId: 1 });
+bookingSchema.index({ showId: 1, bookingStatus: 1 });
+bookingSchema.index({ theaterId: 1, isCheckedIn: 1 });
+bookingSchema.index({ userId: 1, bookingStatus: 1 });
 
 module.exports = mongoose.model('Booking', bookingSchema);
