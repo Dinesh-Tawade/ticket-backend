@@ -115,7 +115,7 @@ const {
 // Define upload handlers for vendor routes
 const uploadStoreLogo = upload.single('storeLogo');
 const uploadProductImage = upload.single('image');
-
+ 
 const router = express.Router();
 
 // ==================== TEST ROUTE ====================
@@ -208,6 +208,9 @@ router.put('/theater-owner/show/update-status/:id', protect, authorize('THEATER_
 router.get('/theater-owner/my-bookings', protect, authorize('THEATER_OWNER'), getMyTheaterBookings);
 router.get('/theater-owner/theater/:theaterId/bookings', protect, authorize('THEATER_OWNER'), getTheaterBookings);
 
+router.put('/ticket/use/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), markTicketAsUsed);
+router.get('/ticket/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getTicketDetails);
+router.get('/show/:showId/tickets', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getShowTickets);
 
 // ==================== VENDOR ROUTES ====================
 // Dashboard
@@ -283,9 +286,7 @@ router.put('/buyer/order/cancel/:orderId', protect, authorize('BUYER'), cancelOr
 router.post('/buyer/order/pay/:orderId', protect, authorize('BUYER'), processPayment);
 
 
-router.put('/ticket/use/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), markTicketAsUsed);
-router.get('/ticket/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getTicketDetails);
-router.get('/show/:showId/tickets', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getShowTickets);
+
 
 // ==================== SETUP ROUTE (First Time Only) ====================
 router.post('/setup/create-super-admin', async (req, res) => {

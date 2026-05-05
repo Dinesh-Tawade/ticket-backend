@@ -134,6 +134,7 @@ const createBooking = async (req, res) => {
       expiresAt
     });
 
+    console.log("Created Booking:", booking);
     res.status(201).json({
       success: true,
       message: paymentStatus === 'PENDING' ? 'Booking created. Complete payment within 15 minutes' : 'Booking confirmed',

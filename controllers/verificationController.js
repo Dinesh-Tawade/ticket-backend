@@ -1,7 +1,5 @@
 const Booking = require('../models/Booking');
 const Show = require('../models/Show');
-const Theater = require('../models/Theater');
-const User = require('../models/User');
 
 // @desc    Verify ticket by QR code data
 // @route   POST /api/verify/ticket
@@ -9,33 +7,30 @@ const verifyTicket = async (req, res) => {
   try {
     const { qrData } = req.body;
     
+    console.log('=== VERIFY TICKET REQUEST ===');
+    console.log('QR Data:', qrData);
+    
     if (!qrData) {
       return res.status(400).json({ 
         success: false, 
-        message: 'QR data is required' 
+        message: 'QR data is required',
+        isValid: false 
       });
     }
 
     // Parse QR data format: "BOOKING_ID|ROW|SEAT|ROW+SEAT"
     const parts = qrData.split('|');
-    
-    let bookingId, scannedRow, scannedSeat, scannedRowSeat;
-    
-    if (parts.length === 4) {
-      bookingId = parts[0];
-      scannedRow = parts[1];
-      scannedSeat = parts[2];
-      scannedRowSeat = parts[3];
-    } else {
-      // Fallback: if only booking ID
-      bookingId = qrData;
-    }
+    let bookingId = parts[0];
+
+    console.log('Extracted Booking ID:', bookingId);
 
     // Find booking
     const booking = await Booking.findOne({ bookingId })
-      .populate('showId', 'movie.name movie.poster showDate startTime endTime status')
-      .populate('theaterId', 'name location city')
-      .populate('userId', 'name email phone');
+      .populate('userId', 'name email phone')
+      .populate('showId', 'movie.name movie.poster movie.duration movie.genre movie.language showDate startTime endTime')
+      .populate('theaterId', 'name location city');
+
+    console.log('Found Booking:', booking ? 'YES' : 'NO');
 
     if (!booking) {
       return res.status(404).json({ 
@@ -47,29 +42,14 @@ const verifyTicket = async (req, res) => {
 
     // Check booking status
     if (booking.bookingStatus !== 'CONFIRMED') {
-      let message = '';
-      switch (booking.bookingStatus) {
-        case 'PENDING':
-          message = 'Ticket payment pending. Please complete payment.';
-          break;
-        case 'CANCELLED':
-          message = 'Ticket has been cancelled.';
-          break;
-        case 'EXPIRED':
-          message = 'Ticket has expired.';
-          break;
-        default:
-          message = `Ticket status: ${booking.bookingStatus}`;
-      }
       return res.status(400).json({ 
         success: false, 
-        message,
-        isValid: false,
-        bookingStatus: booking.bookingStatus
+        message: `Ticket status: ${booking.bookingStatus}. Cannot verify.`,
+        isValid: false 
       });
     }
 
-    // Check payment status for paid shows
+    // Check payment status
     if (booking.paymentStatus === 'PENDING') {
       return res.status(400).json({ 
         success: false, 
@@ -78,98 +58,47 @@ const verifyTicket = async (req, res) => {
       });
     }
 
-    // Get show details
-    const show = await Show.findById(booking.showId);
-    if (!show) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Show not found',
-        isValid: false 
-      });
-    }
-
-    // Check if show has already ended
-    const showDateTime = new Date(show.showDate);
-    const [hours, minutes] = show.endTime.split(':');
-    showDateTime.setHours(parseInt(hours), parseInt(minutes));
-    
-    if (new Date() > showDateTime) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'This show has already ended. Ticket cannot be used.',
-        isValid: false 
-      });
-    }
-
-    // Verify seat matches (if row and seat provided in QR)
-    let seatVerified = true;
-    let matchedSeat = null;
-    
-    if (scannedRow && scannedSeat) {
-      matchedSeat = booking.seats.find(
-        seat => seat.rowName === scannedRow && seat.seatNumber === parseInt(scannedSeat)
-      );
-      
-      if (!matchedSeat) {
-        seatVerified = false;
-        return res.status(400).json({ 
-          success: false, 
-          message: `Seat mismatch. This ticket is for different seat.`,
-          isValid: false,
-          expectedSeats: booking.seats.map(s => `${s.rowName}${s.seatNumber}`)
-        });
-      }
-    }
-
-    // Check if ticket already used (you can add a 'used' field to track)
-    if (booking.isUsed) {
+    // Check if already checked in
+    if (booking.isCheckedIn) {
       return res.status(400).json({ 
         success: false, 
         message: 'Ticket has already been used for entry.',
         isValid: false,
-        usedAt: booking.usedAt
+        checkedInAt: booking.checkedInAt
       });
     }
 
-    // Ticket is valid
+    // Prepare response
+    const responseData = {
+      bookingId: booking.bookingId,
+      customer: {
+        name: booking.userId?.name || 'Guest',
+        email: booking.userId?.email || 'N/A',
+        phone: booking.userId?.phone || 'N/A'
+      },
+      movieName: booking.movieName || booking.showId?.movie?.name,
+      theater: {
+        name: booking.theaterId?.name || 'N/A',
+        location: booking.theaterId?.location || 'N/A',
+        city: booking.theaterId?.city || 'N/A'
+      },
+      showDate: booking.showDate,
+      showTime: booking.showTime,
+      screenNumber: booking.screenNumber || 1,
+      seats: booking.seats,
+      totalAmount: booking.totalAmount,
+      paymentStatus: booking.paymentStatus,
+      isCheckedIn: booking.isCheckedIn || false,
+      checkedInAt: booking.checkedInAt,
+      checkedInSeatsCount: booking.checkedInSeatsCount || 0,
+      totalSeats: booking.totalSeats || booking.seats?.length || 0
+    };
+
     res.json({
       success: true,
       isValid: true,
       message: 'Ticket is valid',
-      data: {
-        bookingId: booking.bookingId,
-        customer: {
-          name: booking.userId?.name,
-          email: booking.userId?.email,
-          phone: booking.userId?.phone
-        },
-        show: {
-          movieName: show.movie.name,
-          poster: show.movie.poster,
-          date: show.showDate,
-          startTime: show.startTime,
-          endTime: show.endTime,
-          status: show.status
-        },
-        theater: {
-          name: booking.theaterId?.name,
-          location: booking.theaterId?.location,
-          city: booking.theaterId?.city
-        },
-        seats: booking.seats.map(s => ({
-          row: s.rowName,
-          seatNumber: s.seatNumber,
-          category: s.category,
-          price: s.price
-        })),
-        totalAmount: booking.totalAmount,
-        paymentStatus: booking.paymentStatus,
-        bookedAt: booking.bookedAt,
-        qrMatchedSeat: matchedSeat ? {
-          row: matchedSeat.rowName,
-          seatNumber: matchedSeat.seatNumber
-        } : null
-      }
+      data: responseData
     });
 
   } catch (error) {
@@ -182,12 +111,15 @@ const verifyTicket = async (req, res) => {
   }
 };
 
-// @desc    Mark ticket as used (after entry)
+// @desc    Mark ticket as used (check-in)
 // @route   PUT /api/verify/ticket/use/:bookingId
 const markTicketAsUsed = async (req, res) => {
   try {
     const { bookingId } = req.params;
-    const { seatIndex } = req.body; // Optional: specific seat index
+    
+    console.log('=== CHECK-IN REQUEST ===');
+    console.log('Booking ID:', bookingId);
+    console.log('Checked in by:', req.user?.id);
 
     const booking = await Booking.findOne({ bookingId });
 
@@ -201,102 +133,64 @@ const markTicketAsUsed = async (req, res) => {
     if (booking.bookingStatus !== 'CONFIRMED') {
       return res.status(400).json({ 
         success: false, 
-        message: `Cannot mark ticket as used. Status: ${booking.bookingStatus}` 
+        message: `Cannot check in. Booking status: ${booking.bookingStatus}` 
       });
     }
 
-    if (booking.isUsed) {
+    if (booking.isCheckedIn) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Ticket already marked as used' 
+        message: 'Ticket already checked in' 
       });
     }
 
-    booking.isUsed = true;
-    booking.usedAt = new Date();
-    booking.usedBy = req.user.id;
+    // Mark as checked in
+    booking.isCheckedIn = true;
+    booking.checkedInAt = new Date();
+    booking.checkedInBy = req.user?.id;
+    booking.checkedInSeatsCount = booking.seats?.length || 0;
+    
     await booking.save();
+
+    console.log('Check-in successful for:', bookingId);
 
     res.json({
       success: true,
-      message: 'Ticket marked as used successfully',
+      message: 'Check-in successful',
       data: {
         bookingId: booking.bookingId,
-        usedAt: booking.usedAt
+        checkedInAt: booking.checkedInAt
       }
     });
 
   } catch (error) {
+    console.error('Check-in error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get ticket details by booking ID (for display)
+// @desc    Get ticket details
 // @route   GET /api/verify/ticket/:bookingId
 const getTicketDetails = async (req, res) => {
   try {
     const { bookingId } = req.params;
 
     const booking = await Booking.findOne({ bookingId })
-      .populate('showId', 'movie.name movie.poster movie.genre movie.duration movie.language showDate startTime endTime')
-      .populate('theaterId', 'name location city contactNumber')
-      .populate('userId', 'name email phone');
+      .populate('userId', 'name email phone')
+      .populate('showId', 'movie.name movie.poster showDate startTime endTime')
+      .populate('theaterId', 'name location city');
 
     if (!booking) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Ticket not found' 
-      });
+      return res.status(404).json({ success: false, message: 'Ticket not found' });
     }
 
-    // Check if user is authorized (theater owner of that theater or super admin)
-    let isAuthorized = false;
-    
-    if (req.user.role === 'SUPER_ADMIN') {
-      isAuthorized = true;
-    } else if (req.user.role === 'THEATER_OWNER') {
-      // Check if this theater belongs to this owner
-      const theater = await Theater.findOne({ 
-        _id: booking.theaterId, 
-        ownerId: req.user.id 
-      });
-      if (theater) isAuthorized = true;
-    }
-
-    if (!isAuthorized) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Not authorized to view this ticket' 
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        bookingId: booking.bookingId,
-        customer: {
-          name: booking.userId?.name,
-          email: booking.userId?.email,
-          phone: booking.userId?.phone
-        },
-        show: booking.showId,
-        theater: booking.theaterId,
-        seats: booking.seats,
-        totalAmount: booking.totalAmount,
-        paymentStatus: booking.paymentStatus,
-        bookingStatus: booking.bookingStatus,
-        isUsed: booking.isUsed || false,
-        usedAt: booking.usedAt,
-        bookedAt: booking.bookedAt
-      }
-    });
-
+    res.json({ success: true, data: booking });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get all tickets for a show (Theater Owner/Admin)
+// @desc    Get all tickets for a show
 // @route   GET /api/verify/show/:showId/tickets
 const getShowTickets = async (req, res) => {
   try {
@@ -307,22 +201,15 @@ const getShowTickets = async (req, res) => {
       bookingStatus: 'CONFIRMED' 
     }).populate('userId', 'name email phone');
 
-    // Calculate stats
     const stats = {
-      totalTickets: bookings.reduce((sum, b) => sum + b.seats.length, 0),
+      totalTickets: bookings.reduce((sum, b) => sum + (b.seats?.length || 0), 0),
       totalBookings: bookings.length,
-      totalRevenue: bookings.reduce((sum, b) => sum + b.totalAmount, 0),
-      usedTickets: bookings.filter(b => b.isUsed).reduce((sum, b) => sum + b.seats.length, 0),
-      checkedIn: bookings.filter(b => b.isUsed).length
+      totalRevenue: bookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0),
+      checkedInTickets: bookings.filter(b => b.isCheckedIn).reduce((sum, b) => sum + (b.seats?.length || 0), 0),
+      checkedInBookings: bookings.filter(b => b.isCheckedIn).length
     };
 
-    res.json({
-      success: true,
-      stats,
-      count: bookings.length,
-      data: bookings
-    });
-
+    res.json({ success: true, stats, data: bookings });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

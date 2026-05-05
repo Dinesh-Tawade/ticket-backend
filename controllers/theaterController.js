@@ -196,6 +196,8 @@ const createShow = async (req, res) => {
       seatCategories, isPaid, basePrice
     } = req.body;
 
+    console.log("Create Show Request Body:", req.body);
+
     // Check if theater exists
     const theater = await Theater.findById(theaterId);
     if (!theater) {
@@ -251,9 +253,10 @@ const createShow = async (req, res) => {
       seatCategories: generatedSeatCategories,
       isPaid: isPaid || false,
       basePrice: basePrice || 0,
-      status: 'COMING_SOON',
+      status: 'BOOKING_OPEN',
       createdBy: req.user.id
     });
+console.log("Created Show:", show);
 
     res.status(201).json({
       success: true,
