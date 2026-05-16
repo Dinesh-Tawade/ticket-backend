@@ -187,7 +187,6 @@ const showSchema = new mongoose.Schema({
   }
 });
 
-// Update available seats before saving
 showSchema.pre('save', function(next) {
   let total = 0;
   let available = 0;

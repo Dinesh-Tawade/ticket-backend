@@ -101,9 +101,12 @@ const orderSchema = new mongoose.Schema({
   },
   confirmedAt: Date,
   preparedAt: Date,
+  readyAt: Date,        // ✅ ADD THIS FIELD
   deliveredAt: Date,
   cancelledAt: Date,
   cancelledReason: String
+}, {
+  timestamps: true
 });
 
 // Generate unique order ID

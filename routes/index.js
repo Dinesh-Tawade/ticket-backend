@@ -34,15 +34,18 @@ const {
   deleteScreenFromTheater,
   createShow,
   getAllShows: adminGetAllShows,
+  updateShow,
   updateShowStatus: adminUpdateShowStatus,
   deleteShow: adminDeleteShow,
-  getDetailedShowById
+  getDetailedShowById,
+  setAllShowsPaymentMode
 } = require('../controllers/theaterController');
 
 // Booking Controllers
 const {
   getAvailableSeats,
   createBooking,
+  createPaymentOrder,
   confirmPayment,
   getMyBookings,
   cancelBooking,
@@ -86,25 +89,22 @@ const paymentController = require('../controllers/vendor/paymentController');
 
 // Buyer Food Order Controllers
 const {
-  // Cart
   addToCart,
   getCart,
   updateCartItem,
   removeFromCart,
   clearCart,
-  // Order
   placeOrder,
   getMyOrders,
   getOrderDetails,
   trackOrder,
   cancelOrder,
-  // Payment
   processPayment,
-  // Browse
   getTheaterProducts,
   getProductCategories
 } = require('../controllers/buyer/foodController');
 
+// Verification Controllers
 const {
   verifyTicket,
   markTicketAsUsed,
@@ -115,7 +115,7 @@ const {
 // Define upload handlers for vendor routes
 const uploadStoreLogo = upload.single('storeLogo');
 const uploadProductImage = upload.single('image');
- 
+
 const router = express.Router();
 
 // ==================== TEST ROUTE ====================
@@ -144,6 +144,7 @@ router.get('/users/profile', protect, getBuyerProfile);
 
 // Booking Routes (Authenticated Users)
 router.post('/public/booking/create', protect, createBooking);
+router.post('/public/booking/create-payment-order/:bookingId', protect, createPaymentOrder);
 router.put('/public/booking/confirm-payment/:bookingId', protect, confirmPayment);
 router.get('/public/booking/my-bookings', protect, getMyBookings);
 router.put('/public/booking/cancel/:bookingId', protect, cancelBooking);
@@ -175,7 +176,9 @@ router.delete('/admin/theater/delete-screen/:id/:screenId', protect, authorize('
 router.post('/admin/show/create', protect, authorize('SUPER_ADMIN'), createShow);
 router.get('/admin/show/all', protect, authorize('SUPER_ADMIN'), adminGetAllShows);
 router.get('/admin/show/:id', protect, authorize('SUPER_ADMIN'), getDetailedShowById);
+router.put('/admin/show/update/:id', protect, authorize('SUPER_ADMIN'), updateShow);
 router.put('/admin/show/update-status/:id', protect, authorize('SUPER_ADMIN'), adminUpdateShowStatus);
+router.put('/admin/shows/set-paid-all', protect, authorize('SUPER_ADMIN'), setAllShowsPaymentMode);
 router.delete('/admin/show/delete/:id', protect, authorize('SUPER_ADMIN'), adminDeleteShow);
 
 // Booking Management (Admin)
@@ -198,16 +201,17 @@ router.post('/theater-owner/theater/:theaterId/add-screen', protect, authorize('
 router.put('/theater-owner/theater/:theaterId/screen/:screenId', protect, authorize('THEATER_OWNER'), updateScreen);
 router.delete('/theater-owner/theater/:theaterId/screen/:screenId', protect, authorize('THEATER_OWNER'), deleteScreen);
 
-// Show Management
+// Show Management (Theater Owner)
 router.get('/theater-owner/my-shows', protect, authorize('THEATER_OWNER'), getMyShows);
 router.get('/theater-owner/theater/:theaterId/shows', protect, authorize('THEATER_OWNER'), getTheaterShows);
 router.get('/theater-owner/show/:id', protect, authorize('THEATER_OWNER'), ownerGetShowById);
 router.put('/theater-owner/show/update-status/:id', protect, authorize('THEATER_OWNER'), ownerUpdateShowStatus);
 
-// Booking Reports
+// Booking Reports (Theater Owner)
 router.get('/theater-owner/my-bookings', protect, authorize('THEATER_OWNER'), getMyTheaterBookings);
 router.get('/theater-owner/theater/:theaterId/bookings', protect, authorize('THEATER_OWNER'), getTheaterBookings);
 
+// Ticket Verification Routes
 router.put('/ticket/use/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), markTicketAsUsed);
 router.get('/ticket/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getTicketDetails);
 router.get('/show/:showId/tickets', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getShowTickets);
@@ -252,15 +256,15 @@ router.put('/vendor/product/update/:id', protect, authorize('VENDOR'), (req, res
 router.put('/vendor/product/update-stock/:id', protect, authorize('VENDOR'), productController.updateProductStock);
 router.delete('/vendor/product/delete/:id', protect, authorize('VENDOR'), productController.deleteProduct);
 
-// Order Management
+// Order Management (Vendor)
 router.get('/vendor/orders', protect, authorize('VENDOR'), orderController.getMyStoreOrders);
 router.get('/vendor/order/:orderId', protect, authorize('VENDOR'), orderController.getOrderDetails);
 router.put('/vendor/order/update-status/:orderId', protect, authorize('VENDOR'), orderController.updateOrderStatus);
 
-// Sales & Reports
+// Sales & Reports (Vendor)
 router.get('/vendor/sales-report', protect, authorize('VENDOR'), reportController.getSalesReport);
 
-// Payments
+// Payments (Vendor)
 router.get('/vendor/payments', protect, authorize('VENDOR'), paymentController.getPaymentTransactions);
 
 // ==================== BUYER FOOD ORDER ROUTES ====================
@@ -275,18 +279,15 @@ router.put('/buyer/cart/update/:productId', protect, authorize('BUYER'), updateC
 router.delete('/buyer/cart/remove/:productId', protect, authorize('BUYER'), removeFromCart);
 router.delete('/buyer/cart/clear', protect, authorize('BUYER'), clearCart);
 
-// Order Management
+// Order Management (Buyer)
 router.post('/buyer/order/place', protect, authorize('BUYER'), placeOrder);
 router.get('/buyer/orders', protect, authorize('BUYER'), getMyOrders);
 router.get('/buyer/order/:orderId', protect, authorize('BUYER'), getOrderDetails);
 router.get('/buyer/order/track/:orderId', protect, authorize('BUYER'), trackOrder);
 router.put('/buyer/order/cancel/:orderId', protect, authorize('BUYER'), cancelOrder);
 
-// Payment
+// Payment (Buyer)
 router.post('/buyer/order/pay/:orderId', protect, authorize('BUYER'), processPayment);
-
-
-
 
 // ==================== SETUP ROUTE (First Time Only) ====================
 router.post('/setup/create-super-admin', async (req, res) => {

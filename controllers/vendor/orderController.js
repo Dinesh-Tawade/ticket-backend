@@ -1,6 +1,18 @@
 const Store = require('../../models/Store');
 const Order = require('../../models/Order');
 
+// Helper function to get status label
+const getStatusLabel = (status) => {
+  const labels = {
+    'CONFIRMED': 'Confirmed',
+    'PREPARING': 'Preparing',
+    'READY': 'Ready for Delivery',
+    'DELIVERED': 'Delivered',
+    'CANCELLED': 'Cancelled'
+  };
+  return labels[status] || status;
+};
+
 // @desc    Get all orders for my store
 // @route   GET /api/vendor/orders
 const getMyStoreOrders = async (req, res) => {
@@ -67,7 +79,7 @@ const getOrderDetails = async (req, res) => {
   }
 };
 
-// @desc    Update order status
+// @desc    Update order status (with Socket.io real-time)
 // @route   PUT /api/vendor/order/update-status/:orderId
 const updateOrderStatus = async (req, res) => {
   try {
@@ -77,7 +89,9 @@ const updateOrderStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Store not found' });
     }
 
-    const order = await Order.findOne({ orderId: req.params.orderId, storeId: store._id });
+    const order = await Order.findOne({ orderId: req.params.orderId, storeId: store._id })
+      .populate('buyerId', 'name email phone');
+      
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
@@ -90,14 +104,44 @@ const updateOrderStatus = async (req, res) => {
       });
     }
 
+    // Store old status for comparison
+    const oldStatus = order.orderStatus;
+    
+    // Update order status
     order.orderStatus = status;
     
     if (status === 'CONFIRMED') order.confirmedAt = Date.now();
     if (status === 'PREPARING') order.preparedAt = Date.now();
+    if (status === 'READY') order.readyAt = Date.now();
     if (status === 'DELIVERED') order.deliveredAt = Date.now();
     if (status === 'CANCELLED') order.cancelledAt = Date.now();
 
     await order.save();
+
+    // 🔥 SEND REAL-TIME UPDATE VIA SOCKET.IO 🔥
+    const io = req.app.get('io');
+    if (io) {
+      // Notify buyer about status change
+      if (order.buyerId && order.buyerId._id) {
+        io.to(`buyer_${order.buyerId._id}`).emit('order-status-updated', {
+          orderId: order.orderId,
+          status: order.orderStatus,
+          statusLabel: getStatusLabel(status),
+          oldStatus: oldStatus,
+          updatedAt: new Date(),
+          message: `Your order #${order.orderId} is now ${getStatusLabel(status)}`
+        });
+        console.log(`📢 Socket: Notified buyer ${order.buyerId._id} about order ${order.orderId} status: ${status}`);
+      }
+
+      // Notify vendor (self) for confirmation
+      io.to(`vendor_${req.user.id}`).emit('order-status-changed', {
+        orderId: order.orderId,
+        status: order.orderStatus,
+        statusLabel: getStatusLabel(status),
+        updatedAt: new Date()
+      });
+    }
 
     res.json({
       success: true,
@@ -105,12 +149,18 @@ const updateOrderStatus = async (req, res) => {
       data: order
     });
   } catch (error) {
+    console.error('Update order status error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+const updateOrderStatusWithSocket = async (req, res) => {
+  await updateOrderStatus(req, res);
 };
 
 module.exports = {
   getMyStoreOrders,
   getOrderDetails,
-  updateOrderStatus
+  updateOrderStatus,
+  updateOrderStatusWithSocket
 };

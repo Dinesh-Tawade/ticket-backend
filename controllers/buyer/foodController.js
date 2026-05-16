@@ -8,6 +8,19 @@ const Show = require('../../models/Show');
 // Temporary cart storage (in production use Redis or Database)
 let userCarts = {};
 
+// Helper function for status label
+const getStatusLabel = (status) => {
+  const labels = {
+    'PENDING': 'Order Received',
+    'CONFIRMED': 'Order Confirmed',
+    'PREPARING': 'Preparing',
+    'READY': 'Ready for Delivery',
+    'DELIVERED': 'Delivered',
+    'CANCELLED': 'Cancelled'
+  };
+  return labels[status] || status;
+};
+
 // ==================== CART MANAGEMENT ====================
 
 // @desc    Add item to cart
@@ -21,7 +34,6 @@ const addToCart = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Product ID and valid quantity required' });
     }
 
-    // Get product details
     const product = await Product.findById(productId).populate('storeId');
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
@@ -31,7 +43,6 @@ const addToCart = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Product out of stock' });
     }
 
-    // Initialize cart for user if not exists
     if (!userCarts[userId]) {
       userCarts[userId] = {
         items: [],
@@ -41,7 +52,6 @@ const addToCart = async (req, res) => {
       };
     }
 
-    // Check if same store
     if (userCarts[userId].storeId.toString() !== product.storeId._id.toString()) {
       return res.status(400).json({ 
         success: false, 
@@ -49,7 +59,6 @@ const addToCart = async (req, res) => {
       });
     }
 
-    // Check if product already in cart
     const existingItem = userCarts[userId].items.find(item => item.productId === productId);
     
     if (existingItem) {
@@ -66,7 +75,6 @@ const addToCart = async (req, res) => {
       });
     }
 
-    // Update total amount
     userCarts[userId].totalAmount = userCarts[userId].items.reduce((sum, item) => sum + item.total, 0);
 
     res.json({
@@ -122,18 +130,14 @@ const updateCartItem = async (req, res) => {
     }
 
     if (quantity <= 0) {
-      // Remove item
       userCarts[userId].items.splice(itemIndex, 1);
     } else {
-      // Update quantity
       userCarts[userId].items[itemIndex].quantity = quantity;
       userCarts[userId].items[itemIndex].total = userCarts[userId].items[itemIndex].price * quantity;
     }
 
-    // Update total amount
     userCarts[userId].totalAmount = userCarts[userId].items.reduce((sum, item) => sum + item.total, 0);
 
-    // If cart empty, delete it
     if (userCarts[userId].items.length === 0) {
       delete userCarts[userId];
       return res.json({ success: true, message: 'Cart is now empty', data: { items: [], totalAmount: 0 } });
@@ -201,7 +205,7 @@ const clearCart = async (req, res) => {
 
 // ==================== ORDER MANAGEMENT ====================
 
-// @desc    Place order from cart
+// @desc    Place order from cart (with Socket.io real-time notification)
 // @route   POST /api/buyer/order/place
 const placeOrder = async (req, res) => {
   try {
@@ -213,13 +217,11 @@ const placeOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Cart is empty' });
     }
 
-    // Verify store exists and is open
     const store = await Store.findById(cart.storeId);
     if (!store || !store.isOpen) {
       return res.status(400).json({ success: false, message: 'Store is currently closed' });
     }
 
-    // Verify product stock
     for (const item of cart.items) {
       const product = await Product.findById(item.productId);
       if (!product || product.stock < item.quantity) {
@@ -230,13 +232,11 @@ const placeOrder = async (req, res) => {
       }
     }
 
-    // Calculate tax (5% GST)
     const subTotal = cart.totalAmount;
     const tax = subTotal * 0.05;
     const deliveryCharge = deliveryType === 'SEAT_DELIVERY' ? 20 : 0;
     const totalAmount = subTotal + tax + deliveryCharge;
 
-    // Create order
     const orderItems = cart.items.map(item => ({
       productId: item.productId,
       productName: item.productName,
@@ -245,7 +245,6 @@ const placeOrder = async (req, res) => {
       total: item.total
     }));
 
-    // Update product stock
     for (const item of cart.items) {
       await Product.findByIdAndUpdate(item.productId, {
         $inc: { stock: -item.quantity, salesCount: item.quantity }
@@ -272,6 +271,21 @@ const placeOrder = async (req, res) => {
 
     // Clear cart
     delete userCarts[userId];
+
+    // 🔥 SEND REAL-TIME NOTIFICATION TO VENDOR 🔥
+    const io = req.app.get('io');
+    if (io) {
+      const vendorRoom = `vendor_${store.vendorId}`;
+      io.to(vendorRoom).emit('new-order', {
+        orderId: order.orderId,
+        totalAmount: order.totalAmount,
+        itemsCount: order.items.length,
+        customerName: req.user.name || 'Guest',
+        orderedAt: order.orderedAt,
+        message: `📦 New order #${order.orderId} received!`
+      });
+      console.log(`📢 Socket: Notified vendor ${store.vendorId} about new order ${order.orderId}`);
+    }
 
     res.status(201).json({
       success: true,
@@ -366,17 +380,17 @@ const trackOrder = async (req, res) => {
   }
 };
 
-// @desc    Cancel order (before preparation)
+// @desc    Cancel order (before preparation) with Socket notification
 // @route   PUT /api/buyer/order/cancel/:orderId
 const cancelOrder = async (req, res) => {
   try {
-    const order = await Order.findOne({ orderId: req.params.orderId, buyerId: req.user.id });
+    const order = await Order.findOne({ orderId: req.params.orderId, buyerId: req.user.id })
+      .populate('storeId', 'vendorId');
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    // Only allow cancellation if order is PENDING or CONFIRMED
     if (!['PENDING', 'CONFIRMED'].includes(order.orderStatus)) {
       return res.status(400).json({ 
         success: false, 
@@ -395,6 +409,15 @@ const cancelOrder = async (req, res) => {
     order.cancelledAt = new Date();
     order.cancelledBy = 'USER';
     await order.save();
+
+    // 🔥 Notify vendor about cancellation
+    const io = req.app.get('io');
+    if (io && order.storeId && order.storeId.vendorId) {
+      io.to(`vendor_${order.storeId.vendorId}`).emit('order-cancelled', {
+        orderId: order.orderId,
+        message: `Order #${order.orderId} has been cancelled by customer`
+      });
+    }
 
     res.json({ success: true, message: 'Order cancelled successfully' });
   } catch (error) {
@@ -421,15 +444,12 @@ const processPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Order already paid' });
     }
 
-    // Simulate payment processing
     const transactionId = 'TXN_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
 
-    // Update order payment status
     order.paymentStatus = 'PAID';
     order.paymentId = transactionId;
     await order.save();
 
-    // Create payment transaction record
     await PaymentTransaction.create({
       orderId: order._id,
       storeId: order.storeId,
@@ -465,12 +485,9 @@ const getTheaterProducts = async (req, res) => {
     const { theaterId } = req.params;
     const { category } = req.query;
 
-    // First try to find store by assignedTheater (Theater ID)
     let store = await Store.findOne({ assignedTheater: theaterId, isOpen: true });
     
-    // If not found, try to find by theater owner (backward compatibility)
     if (!store) {
-      // Find theater first
       const theater = await Theater.findById(theaterId);
       if (theater) {
         store = await Store.findOne({ assignedTheater: theater.ownerId, isOpen: true });
@@ -484,13 +501,12 @@ const getTheaterProducts = async (req, res) => {
         debug: { theaterId }
       });
     }
-
+    
     let filter = { storeId: store._id, isAvailable: true, stock: { $gt: 0 } };
     if (category) filter.category = category;
 
     const products = await Product.find(filter).sort({ createdAt: -1 });
 
-    // Group by category
     const groupedProducts = products.reduce((acc, product) => {
       if (!acc[product.category]) acc[product.category] = [];
       acc[product.category].push(product);

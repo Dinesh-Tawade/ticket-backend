@@ -18,7 +18,7 @@ const getAvailableSeats = async (req, res) => {
         seatMap[category.category][row.rowName] = row.seats.map(seat => ({
           seatNumber: seat.seatNumber,
           isBooked: seat.isBooked,
-          price: category.pricePerSeat
+          price: show.isPaid ? category.pricePerSeat : 0
         }));
       });
     });
@@ -47,7 +47,6 @@ const createBooking = async (req, res) => {
     const { showId, seats } = req.body;
     const userId = req.user.id;
 
-    // Max 40 seats per booking
     if (seats.length > 40) {
       return res.status(400).json({ success: false, message: 'Maximum 40 seats per booking' });
     }
@@ -61,7 +60,6 @@ const createBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: `Show is ${show.status}. Cannot book tickets` });
     }
 
-    // Check seat availability and calculate total amount
     let totalAmount = 0;
     const bookedSeats = [];
     const seatCategories = [...show.seatCategories];
@@ -77,12 +75,13 @@ const createBooking = async (req, res) => {
               seat.isBooked = true;
               seat.bookedBy = userId;
               seatFound = true;
-              totalAmount += category.pricePerSeat;
+              const seatPrice = show.isPaid ? category.pricePerSeat : 0;
+              totalAmount += seatPrice;
               bookedSeats.push({
                 rowName: selectedSeat.rowName,
                 seatNumber: selectedSeat.seatNumber,
                 category: category.category,
-                price: category.pricePerSeat
+                price: seatPrice
               });
               break;
             } else if (seat && seat.isBooked) {
@@ -101,24 +100,22 @@ const createBooking = async (req, res) => {
       }
     }
 
-    // Update show
     show.seatCategories = seatCategories;
     await show.save();
 
-    // Calculate expiry time (15 minutes from now)
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 15);
 
-   
     let paymentStatus = 'FREE';
     let bookingStatus = 'CONFIRMED';
     
     if (show.isPaid && totalAmount > 0) {
       paymentStatus = 'PENDING';
       bookingStatus = 'PENDING';
+    } else {
+      totalAmount = 0;
     }
 
-    // Create booking
     const booking = await Booking.create({
       userId,
       showId,
@@ -134,7 +131,6 @@ const createBooking = async (req, res) => {
       expiresAt
     });
 
-    console.log("Created Booking:", booking);
     res.status(201).json({
       success: true,
       message: paymentStatus === 'PENDING' ? 'Booking created. Complete payment within 15 minutes' : 'Booking confirmed',
@@ -147,6 +143,39 @@ const createBooking = async (req, res) => {
         seats: bookedSeats
       }
     });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Create Payment Order (For Paid Shows)
+// @route   POST /api/public/booking/create-payment-order/:bookingId
+const createPaymentOrder = async (req, res) => {
+  try {
+    const booking = await Booking.findOne({ bookingId: req.params.bookingId });
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    if (booking.userId.toString() !== req.user.id && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+
+    if (booking.paymentStatus !== 'PENDING' || booking.bookingStatus !== 'PENDING') {
+      return res.status(400).json({ success: false, message: 'Payment order cannot be created for this booking' });
+    }
+
+    const paymentOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
+    const paymentOrder = {
+      orderId: paymentOrderId,
+      bookingId: booking.bookingId,
+      amount: booking.totalAmount,
+      currency: 'INR',
+      receipt: booking.bookingId,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000)
+    };
+
+    res.json({ success: true, data: paymentOrder });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -174,7 +203,6 @@ const confirmPayment = async (req, res) => {
       booking.bookingStatus = 'EXPIRED';
       await booking.save();
       
-      // Release seats
       const show = await Show.findById(booking.showId);
       for (const seat of booking.seats) {
         for (const category of show.seatCategories) {
@@ -195,11 +223,15 @@ const confirmPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Booking expired. Please book again' });
     }
 
+    const { paymentId, paymentMethod, gatewayResponse } = req.body;
+
     booking.paymentStatus = 'PAID';
     booking.bookingStatus = 'CONFIRMED';
+    if (paymentId) booking.paymentId = paymentId;
+    if (paymentMethod) booking.paymentMethod = paymentMethod;
+    if (gatewayResponse) booking.paymentDetails = gatewayResponse;
     await booking.save();
 
-    // Update booking reference in show seats
     const show = await Show.findById(booking.showId);
     for (const seat of booking.seats) {
       for (const category of show.seatCategories) {
@@ -255,7 +287,6 @@ const cancelBooking = async (req, res) => {
       booking.cancelledBy = req.user.role === 'SUPER_ADMIN' ? 'ADMIN' : 'USER';
       await booking.save();
 
-      // Release seats
       const show = await Show.findById(booking.showId);
       for (const seat of booking.seats) {
         for (const category of show.seatCategories) {
@@ -305,7 +336,7 @@ const getAllBookings = async (req, res) => {
   }
 };
 
-// Auto-cancel expired pending bookings (Run this as a cron job)
+// Auto-cancel expired pending bookings
 const autoCancelExpiredBookings = async () => {
   try {
     const expiredBookings = await Booking.find({
@@ -317,7 +348,6 @@ const autoCancelExpiredBookings = async () => {
       booking.bookingStatus = 'EXPIRED';
       await booking.save();
 
-      // Release seats
       const show = await Show.findById(booking.showId);
       if (show) {
         for (const seat of booking.seats) {
@@ -343,17 +373,16 @@ const autoCancelExpiredBookings = async () => {
     console.error('Auto-cancel error:', error);
   }
 };
+
 // @desc    Get All Active Shows (Public)
 // @route   GET /api/public/shows
 const getAllShows = async (req, res) => {
   try {
-    // Filter options
     let filter = {
-      status: 'BOOKING_OPEN',  // Sirf booking open shows
-      showDate: { $gte: new Date() } // Aaj aur future ke shows
+      status: 'BOOKING_OPEN',
+      showDate: { $gte: new Date() }
     };
     
-    // Optional filters (agar query params se filter karna ho)
     const { date, movieId, theaterId, city } = req.query;
     
     if (date) {
@@ -363,21 +392,13 @@ const getAllShows = async (req, res) => {
       filter.showDate = { $gte: startDate, $lt: endDate };
     }
     
-    if (movieId) {
-      filter['movie.movieId'] = movieId;
-    }
-    
-    if (theaterId) {
-      filter.theaterId = theaterId;
-    }
-    
-    if (city) {
-      filter.city = city;
-    }
+    if (movieId) filter['movie.movieId'] = movieId;
+    if (theaterId) filter.theaterId = theaterId;
+    if (city) filter.city = city;
     
     const shows = await Show.find(filter)
-      .populate('theaterId', 'name location city address') // Theater details
-      .sort({ showDate: 1, startTime: 1 }); // Date aur time ke hisaab se sort
+      .populate('theaterId', 'name location city address')
+      .sort({ showDate: 1, startTime: 1 });
     
     res.json({
       success: true,
@@ -436,6 +457,7 @@ const getShowsByTheater = async (req, res) => {
 module.exports = {
   getAvailableSeats,
   createBooking,
+  createPaymentOrder,
   confirmPayment,
   getMyBookings,
   cancelBooking,
