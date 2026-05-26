@@ -1,11 +1,11 @@
 const mongoose = require('mongoose');
 const { encrypt, decrypt } = require('../utils/encryption');
 
-// ==================== SEAT SCHEMA (Individual Seat) ====================
+// ==================== SEAT SCHEMA (Individual Seat) - DEFINED FIRST ====================
 const seatSchema = new mongoose.Schema({
   seatId: {
-   type: String,
-  required: true
+    type: String,
+    required: true
   },
   seatNumber: {
     type: String,  // e.g., "A1", "B12", "C5"
@@ -71,7 +71,10 @@ const rowSchema = new mongoose.Schema({
     min: 1,
     max: 50
   },
-  seats: [seatSchema],
+  seats: {
+    type: [seatSchema],
+    default: []
+  },
   category: {
     type: String,
     enum: ['NORMAL', 'EXECUTIVE', 'PREMIUM', 'VIP', 'COUPLE'],
@@ -147,7 +150,10 @@ const zoneSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
-  rows: [rowSchema],
+  rows: {
+    type: [rowSchema],
+    default: []
+  },
   status: {
     type: String,
     enum: ['ACTIVE', 'INACTIVE', 'MAINTENANCE'],
@@ -183,13 +189,16 @@ const screenSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  seatRows: [{
-    rowName: String,
-    category: String,
-    startSeat: Number,
-    endSeat: Number,
-    priceMultiplier: Number
-  }],
+  seatRows: {
+    type: [{
+      rowName: String,
+      category: String,
+      startSeat: Number,
+      endSeat: Number,
+      priceMultiplier: Number
+    }],
+    default: []
+  },
   
   // New zone-based layout system
   position: {
@@ -201,7 +210,10 @@ const screenSchema = new mongoose.Schema({
     type: String,
     default: 'Center Stage'
   },
-  zones: [zoneSchema],
+  zones: {
+    type: [zoneSchema],
+    default: []
+  },
   totalZones: {
     type: Number,
     default: 0
@@ -288,7 +300,10 @@ const theaterSchema = new mongoose.Schema({
   },
   
   // Screens/Auditoriums
-  screens: [screenSchema],
+  screens: {
+    type: [screenSchema],
+    default: []
+  },
   totalScreens: {
     type: Number,
     default: 0
@@ -314,18 +329,21 @@ const theaterSchema = new mongoose.Schema({
   },
   
   // Images
-  images: [{
-    url: String,
-    type: {
-      type: String,
-      enum: ['exterior', 'interior', 'screen', 'lobby', 'other'],
-      default: 'other'
-    },
-    isPrimary: {
-      type: Boolean,
-      default: false
-    }
-  }],
+  images: {
+    type: [{
+      url: String,
+      type: {
+        type: String,
+        enum: ['exterior', 'interior', 'screen', 'lobby', 'other'],
+        default: 'other'
+      },
+      isPrimary: {
+        type: Boolean,
+        default: false
+      }
+    }],
+    default: []
+  },
   
   // Status fields
   status: {
@@ -459,7 +477,7 @@ theaterSchema.methods.updateZoneInScreen = function(screenIndex, zoneIndex, zone
   if (!this.screens[screenIndex] || !this.screens[screenIndex].zones[zoneIndex]) {
     throw new Error('Zone not found');
   }
-  this.screens[screenIndex].zones[zoneIndex] = { ...this.screens[screenIndex].zones[zoneIndex], ...zoneData };
+  this.screens[screenIndex].zones[zoneIndex] = { ...this.screens[screenIndex].zones[zoneIndex].toObject(), ...zoneData };
   this.updateTotals();
   return this;
 };
