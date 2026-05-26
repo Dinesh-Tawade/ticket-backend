@@ -32,6 +32,11 @@ const {
   addScreenToTheater,
   deleteTheater: adminDeleteTheater,
   deleteScreenFromTheater,
+  // Zone operations
+  addZoneToScreen,
+  updateZoneInScreen,
+  deleteZoneFromScreen,
+  // Show operations
   createShow,
   getAllShows: adminGetAllShows,
   updateShow,
@@ -135,6 +140,7 @@ router.get('/public/shows/trending', getTrendingShows);
 router.get('/public/shows/:id', publicGetShowById);
 router.get('/public/theaters', publicGetAllTheaters);
 router.get('/public/shows/:id/seats', getAvailableSeats);
+router.get('/public/shows/:id/seats', getAvailableSeats);
 router.post('/verify/ticket', verifyTicket);
 
 // ==================== PROTECTED ROUTES (All Authenticated Users) ====================
@@ -172,6 +178,11 @@ router.post('/admin/theater/add-screen/:id', protect, authorize('SUPER_ADMIN'), 
 router.delete('/admin/theater/delete/:id', protect, authorize('SUPER_ADMIN'), adminDeleteTheater);
 router.delete('/admin/theater/delete-screen/:id/:screenId', protect, authorize('SUPER_ADMIN'), deleteScreenFromTheater);
 
+// Zone Management (Admin) - NEW ROUTES
+router.post('/admin/theater/add-zone/:id/:screenId', protect, authorize('SUPER_ADMIN'), addZoneToScreen);
+router.put('/admin/theater/update-zone/:id/:screenId/:zoneId', protect, authorize('SUPER_ADMIN'), updateZoneInScreen);
+router.delete('/admin/theater/delete-zone/:id/:screenId/:zoneId', protect, authorize('SUPER_ADMIN'), deleteZoneFromScreen);
+
 // Show Management (Admin)
 router.post('/admin/show/create', protect, authorize('SUPER_ADMIN'), createShow);
 router.get('/admin/show/all', protect, authorize('SUPER_ADMIN'), adminGetAllShows);
@@ -194,7 +205,7 @@ router.get('/theater-owner/theater/:id', protect, authorize('THEATER_OWNER'), ow
 router.put('/theater-owner/theater/update/:id', protect, authorize('THEATER_OWNER'), ownerUpdateTheater);
 router.delete('/theater-owner/theater/delete/:id', protect, authorize('THEATER_OWNER'), ownerDeleteTheater);
 
-// Screen Management
+// Screen Management (Theater Owner)
 router.get('/theater-owner/theater/:theaterId/screens', protect, authorize('THEATER_OWNER'), getScreens);
 router.get('/theater-owner/theater/:theaterId/screen/:screenId', protect, authorize('THEATER_OWNER'), getScreenById);
 router.post('/theater-owner/theater/:theaterId/add-screen', protect, authorize('THEATER_OWNER'), addScreen);
@@ -211,7 +222,7 @@ router.put('/theater-owner/show/update-status/:id', protect, authorize('THEATER_
 router.get('/theater-owner/my-bookings', protect, authorize('THEATER_OWNER'), getMyTheaterBookings);
 router.get('/theater-owner/theater/:theaterId/bookings', protect, authorize('THEATER_OWNER'), getTheaterBookings);
 
-// Ticket Verification Routes
+// ==================== TICKET VERIFICATION ROUTES ====================
 router.put('/ticket/use/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), markTicketAsUsed);
 router.get('/ticket/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getTicketDetails);
 router.get('/show/:showId/tickets', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getShowTickets);

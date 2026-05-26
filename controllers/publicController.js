@@ -45,19 +45,112 @@ const getTrendingShows = async (req, res) => {
   }
 };
 
-// @desc    Get show by ID
+// @desc    Get show by ID (with seat layout)
 // @route   GET /api/public/shows/:id
 const getShowById = async (req, res) => {
   try {
     const show = await Show.findById(req.params.id)
-      .populate('theaterId', 'name location city contactNumber');
+      .populate('theaterId', 'name location city contactNumber screens');
     
     if (!show) {
       return res.status(404).json({ success: false, message: 'Show not found' });
     }
 
-    res.json({ success: true, data: show });
+    // Get theater data for zone colors
+    const theater = await Theater.findById(show.theaterId._id);
+    
+    // Find the screen in theater that matches show's screenId
+    const screen = theater?.screens?.find(s => s._id.toString() === show.screenId.toString());
+    
+    // Prepare seat categories with proper formatting
+    const formattedSeatCategories = show.seatCategories?.map(category => ({
+      category: category.category,
+      pricePerSeat: category.pricePerSeat,
+      totalSeats: category.totalSeats,
+      availableSeats: category.availableSeats,
+      rows: category.rows?.map(row => ({
+        rowName: row.rowName,
+        seats: row.seats?.map(seat => ({
+          seatNumber: seat.seatNumber,
+          seatLabel: seat.seatLabel || seat.seatNumber,
+          isBooked: seat.isBooked,
+          price: category.pricePerSeat
+        }))
+      }))
+    })) || [];
+
+    // Prepare response with complete seat layout
+    const responseData = {
+      ...show.toObject(),
+      seatCategories: formattedSeatCategories,
+      theaterLayout: {
+        screenPosition: theater?.screenPosition || "top",
+        screenName: screen?.name,
+        screenId: screen?._id,
+        zones: screen?.zones || [],
+        totalSeats: show.totalSeats,
+        availableSeats: show.availableSeats
+      }
+    };
+
+    res.json({ success: true, data: responseData });
   } catch (error) {
+    console.error("Error in getShowById:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get available seats for a show
+// @route   GET /api/public/shows/:id/seats
+const getAvailableSeats = async (req, res) => {
+  try {
+    const show = await Show.findById(req.params.id);
+    
+    if (!show) {
+      return res.status(404).json({ success: false, message: 'Show not found' });
+    }
+
+    // Get theater data for zone colors
+    const theater = await Theater.findById(show.theaterId);
+    const screen = theater?.screens?.find(s => s._id.toString() === show.screenId.toString());
+    
+    // Prepare seat map with zone colors
+    const seatCategories = show.seatCategories?.map(category => {
+      // Get zone color for this category
+      const zone = screen?.zones?.find(z => z.seatType === category.category);
+      const zoneColor = zone?.color || 
+        (category.category === 'NORMAL' ? '#3b82f6' : 
+         category.category === 'EXECUTIVE' ? '#10b981' :
+         category.category === 'PREMIUM' ? '#8b5cf6' : '#f59e0b');
+      
+      return {
+        category: category.category,
+        pricePerSeat: category.pricePerSeat,
+        color: zoneColor,
+        rows: category.rows?.map(row => ({
+          rowName: row.rowName,
+          seats: row.seats?.map(seat => ({
+            seatNumber: seat.seatNumber,
+            isBooked: seat.isBooked,
+            price: category.pricePerSeat,
+            seatLabel: seat.seatLabel || seat.seatNumber
+          }))
+        }))
+      };
+    }) || [];
+
+    res.json({ 
+      success: true, 
+      data: { 
+        seatCategories,
+        totalSeats: show.totalSeats,
+        availableSeats: show.availableSeats,
+        screenPosition: theater?.screenPosition || "top",
+        zones: screen?.zones || []
+      } 
+    });
+  } catch (error) {
+    console.error("Error in getAvailableSeats:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -81,5 +174,6 @@ module.exports = {
   getAllShows,
   getTrendingShows,
   getShowById,
-  getAllTheaters
+  getAllTheaters,
+  getAvailableSeats  // ✅ Add this export
 };
