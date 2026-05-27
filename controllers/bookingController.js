@@ -60,6 +60,14 @@ const createBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: `Show is ${show.status}. Cannot book tickets` });
     }
 
+    const user = await User.findById(userId).select('assignedZone assignedSeats');
+    const allowedZone = user?.assignedZone || null;
+    const allowedSeatKeys = (user?.assignedSeats || []).map((seat) => {
+      if (!seat) return null;
+      if (typeof seat === 'string') return seat;
+      return `${seat.rowName}${seat.seatNumber}`;
+    }).filter(Boolean);
+
     let totalAmount = 0;
     const bookedSeats = [];
     const seatCategories = [...show.seatCategories];
@@ -70,6 +78,20 @@ const createBooking = async (req, res) => {
       for (const category of seatCategories) {
         for (const row of category.rows) {
           if (row.rowName === selectedSeat.rowName) {
+            const seatKey = `${selectedSeat.rowName}${selectedSeat.seatNumber}`;
+            if (allowedZone && category.category !== allowedZone) {
+              return res.status(403).json({
+                success: false,
+                message: `You can only book seats in the ${allowedZone} zone.`
+              });
+            }
+            if (allowedSeatKeys.length > 0 && !allowedSeatKeys.includes(seatKey)) {
+              return res.status(403).json({
+                success: false,
+                message: `Seat ${seatKey} is not assigned to your account.`
+              });
+            }
+
             const seat = row.seats.find(s => s.seatNumber === selectedSeat.seatNumber);
             if (seat && !seat.isBooked) {
               seat.isBooked = true;

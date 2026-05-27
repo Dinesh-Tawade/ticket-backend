@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-// ==================== SEAT CATEGORY SCHEMA (UPDATED) ====================
+// ==================== SEAT CATEGORY SCHEMA ====================
 const seatCategorySchema = new mongoose.Schema({
   category: {
     type: String,
@@ -14,11 +14,11 @@ const seatCategorySchema = new mongoose.Schema({
     },
     seats: [{
       seatNumber: {
-        type: String,  // ✅ CHANGED: Number to String - now can store "A1", "D4", "E10"
+        type: String,
         required: true
       },
       seatLabel: {
-        type: String,  // ✅ ADDED: For custom seat labels
+        type: String,
         default: ''
       },
       isBooked: {
@@ -56,6 +56,41 @@ const seatCategorySchema = new mongoose.Schema({
   }
 });
 
+// ==================== SHOW TIMING SCHEMA (NEW - For multiple timings) ====================
+const showTimingSchema = new mongoose.Schema({
+  showDate: {
+    type: Date,
+    required: true,
+    index: true
+  },
+  startTime: {
+    type: String,
+    required: true
+  },
+  endTime: {
+    type: String,
+    required: true
+  },
+  status: {
+    type: String,
+    enum: ['COMING_SOON', 'BOOKING_OPEN', 'HOUSE_FULL', 'COMPLETED', 'CANCELLED'],
+    default: 'BOOKING_OPEN'
+  },
+  seatCategories: [seatCategorySchema],
+  totalSeats: {
+    type: Number,
+    default: 0
+  },
+  availableSeats: {
+    type: Number,
+    default: 0
+  },
+  bookedSeatsCount: {
+    type: Number,
+    default: 0
+  }
+});
+
 // ==================== MOVIE SCHEMA ====================
 const movieSchema = new mongoose.Schema({
   name: {
@@ -84,7 +119,7 @@ const movieSchema = new mongoose.Schema({
     required: true
   },
   duration: {
-    type: Number, // in minutes
+    type: Number,
     required: true,
     min: 1
   },
@@ -114,6 +149,7 @@ const movieSchema = new mongoose.Schema({
 
 // ==================== MAIN SHOW SCHEMA ====================
 const showSchema = new mongoose.Schema({
+  // Core fields
   theaterId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Theater',
@@ -130,20 +166,6 @@ const showSchema = new mongoose.Schema({
     required: true
   },
   movie: movieSchema,
-  showDate: {
-    type: Date,
-    required: true,
-    index: true
-  },
-  startTime: {
-    type: String,
-    required: true
-  },
-  endTime: {
-    type: String,
-    required: true
-  },
-  seatCategories: [seatCategorySchema],
   isPaid: {
     type: Boolean,
     default: false
@@ -153,6 +175,31 @@ const showSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+    index: true
+  },
+  
+  // ✅ NEW: Multiple timings support
+  timings: [showTimingSchema],
+  
+  // ⚠️ LEGACY FIELDS (Keep for backward compatibility - will be deprecated)
+  showDate: {
+    type: Date,
+    index: true
+  },
+  startTime: {
+    type: String
+  },
+  endTime: {
+    type: String
+  },
+  seatCategories: [seatCategorySchema],
   status: {
     type: String,
     enum: ['COMING_SOON', 'BOOKING_OPEN', 'HOUSE_FULL', 'COMPLETED', 'CANCELLED'],
@@ -170,15 +217,6 @@ const showSchema = new mongoose.Schema({
   bookedSeatsCount: {
     type: Number,
     default: 0
-  },
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-    index: true
   }
 }, { 
   timestamps: true,
@@ -187,52 +225,181 @@ const showSchema = new mongoose.Schema({
 });
 
 // ==================== INDEXES ====================
-showSchema.index({ theaterId: 1, screenId: 1, showDate: 1, startTime: 1 });
-showSchema.index({ movie: 1, status: 1 });
-showSchema.index({ showDate: 1, status: 1 });
+showSchema.index({ theaterId: 1, screenId: 1 });
+showSchema.index({ 'timings.showDate': 1, 'timings.status': 1 });
+showSchema.index({ showDate: 1, status: 1 }); // Legacy index
 
 // ==================== VIRTUAL FIELDS ====================
+
+// Check if show has multiple timings
+showSchema.virtual('hasMultipleTimings').get(function() {
+  return this.timings && this.timings.length > 0;
+});
+
+// Get all active timings
+showSchema.virtual('activeTimings').get(function() {
+  if (!this.timings) return [];
+  return this.timings.filter(t => t.status === 'BOOKING_OPEN' && t.availableSeats > 0);
+});
+
+// Get upcoming timings
+showSchema.virtual('upcomingTimings').get(function() {
+  if (!this.timings) return [];
+  const now = new Date();
+  return this.timings.filter(t => new Date(t.showDate) >= now);
+});
+
+// Legacy virtuals (for backward compatibility)
 showSchema.virtual('isAvailable').get(function() {
+  if (this.timings && this.timings.length > 0) {
+    return this.activeTimings.length > 0;
+  }
   return this.status === 'BOOKING_OPEN' && this.availableSeats > 0;
 });
 
 showSchema.virtual('occupancyRate').get(function() {
+  if (this.timings && this.timings.length > 0) {
+    const totalSeats = this.timings.reduce((sum, t) => sum + t.totalSeats, 0);
+    const bookedSeats = this.timings.reduce((sum, t) => sum + t.bookedSeatsCount, 0);
+    if (totalSeats === 0) return 0;
+    return ((bookedSeats / totalSeats) * 100).toFixed(2);
+  }
   if (this.totalSeats === 0) return 0;
   return ((this.bookedSeatsCount / this.totalSeats) * 100).toFixed(2);
 });
 
 // ==================== PRE-SAVE MIDDLEWARE ====================
 showSchema.pre('save', function(next) {
-  let total = 0;
-  let available = 0;
-  
-  this.seatCategories.forEach(category => {
-    category.rows.forEach(row => {
-      row.seats.forEach(seat => {
-        total++;
-        if (!seat.isBooked) available++;
+  // If timings exist, sync legacy fields from first timing (for backward compatibility)
+  if (this.timings && this.timings.length > 0) {
+    const firstTiming = this.timings[0];
+    this.showDate = firstTiming.showDate;
+    this.startTime = firstTiming.startTime;
+    this.endTime = firstTiming.endTime;
+    this.seatCategories = firstTiming.seatCategories;
+    this.status = firstTiming.status;
+    this.totalSeats = firstTiming.totalSeats;
+    this.availableSeats = firstTiming.availableSeats;
+    this.bookedSeatsCount = firstTiming.bookedSeatsCount;
+  } else if (this.seatCategories && this.seatCategories.length > 0) {
+    // Legacy mode: calculate totals
+    let total = 0;
+    let available = 0;
+    
+    this.seatCategories.forEach(category => {
+      category.rows.forEach(row => {
+        row.seats.forEach(seat => {
+          total++;
+          if (!seat.isBooked) available++;
+        });
       });
+      category.totalSeats = category.rows.reduce((sum, row) => sum + row.seats.length, 0);
+      category.availableSeats = category.rows.reduce((sum, row) => sum + row.seats.filter(s => !s.isBooked).length, 0);
     });
-    category.totalSeats = category.rows.reduce((sum, row) => sum + row.seats.length, 0);
-    category.availableSeats = category.rows.reduce((sum, row) => sum + row.seats.filter(s => !s.isBooked).length, 0);
-  });
-  
-  this.totalSeats = total;
-  this.availableSeats = available;
-  this.bookedSeatsCount = total - available;
-  
-  // Auto-update status based on availability
-  if (this.availableSeats === 0 && this.totalSeats > 0) {
-    this.status = 'HOUSE_FULL';
-  } else if (this.status === 'HOUSE_FULL' && this.availableSeats > 0) {
-    this.status = 'BOOKING_OPEN';
+    
+    this.totalSeats = total;
+    this.availableSeats = available;
+    this.bookedSeatsCount = total - available;
+    
+    // Auto-update status
+    if (this.availableSeats === 0 && this.totalSeats > 0) {
+      this.status = 'HOUSE_FULL';
+    } else if (this.status === 'HOUSE_FULL' && this.availableSeats > 0) {
+      this.status = 'BOOKING_OPEN';
+    }
   }
   
   next();
 });
 
 // ==================== METHODS ====================
+
+// Get a specific timing by ID
+showSchema.methods.getTimingById = function(timingId) {
+  if (!this.timings) return null;
+  return this.timings.find(t => t._id.toString() === timingId);
+};
+
+// Update seat status for a specific timing (NEW - for multiple timings)
+showSchema.methods.updateSeatStatusForTiming = async function(timingId, seatNumber, isBooked, userId, bookingId) {
+  const timing = this.timings?.find(t => t._id.toString() === timingId);
+  if (!timing) return false;
+  
+  let seatFound = false;
+  
+  for (const category of timing.seatCategories) {
+    for (const row of category.rows) {
+      const seat = row.seats.find(s => s.seatNumber === seatNumber);
+      if (seat) {
+        seat.isBooked = isBooked;
+        if (isBooked) {
+          seat.bookedBy = userId;
+          seat.bookingId = bookingId;
+        } else {
+          seat.bookedBy = null;
+          seat.bookingId = null;
+        }
+        seatFound = true;
+        break;
+      }
+    }
+    if (seatFound) break;
+  }
+  
+  if (seatFound) {
+    // Recalculate totals for this timing
+    let total = 0;
+    let available = 0;
+    
+    timing.seatCategories.forEach(category => {
+      category.rows.forEach(row => {
+        row.seats.forEach(seat => {
+          total++;
+          if (!seat.isBooked) available++;
+        });
+      });
+      category.totalSeats = category.rows.reduce((sum, row) => sum + row.seats.length, 0);
+      category.availableSeats = category.rows.reduce((sum, row) => sum + row.seats.filter(s => !s.isBooked).length, 0);
+    });
+    
+    timing.totalSeats = total;
+    timing.availableSeats = available;
+    timing.bookedSeatsCount = total - available;
+    
+    // Auto-update timing status
+    if (timing.availableSeats === 0 && timing.totalSeats > 0) {
+      timing.status = 'HOUSE_FULL';
+    } else if (timing.status === 'HOUSE_FULL' && timing.availableSeats > 0) {
+      timing.status = 'BOOKING_OPEN';
+    }
+    
+    // Sync legacy fields
+    const firstTiming = this.timings[0];
+    this.showDate = firstTiming.showDate;
+    this.startTime = firstTiming.startTime;
+    this.endTime = firstTiming.endTime;
+    this.seatCategories = firstTiming.seatCategories;
+    this.status = firstTiming.status;
+    this.totalSeats = firstTiming.totalSeats;
+    this.availableSeats = firstTiming.availableSeats;
+    this.bookedSeatsCount = firstTiming.bookedSeatsCount;
+    
+    await this.save();
+    return true;
+  }
+  
+  return false;
+};
+
+// Legacy updateSeatStatus (for backward compatibility)
 showSchema.methods.updateSeatStatus = async function(seatNumber, isBooked, userId, bookingId) {
+  // If has timings, use timing method
+  if (this.timings && this.timings.length > 0) {
+    // Default to first timing if no timingId provided
+    return this.updateSeatStatusForTiming(this.timings[0]._id, seatNumber, isBooked, userId, bookingId);
+  }
+  
+  // Legacy mode
   let seatFound = false;
   
   for (const category of this.seatCategories) {
@@ -255,7 +422,6 @@ showSchema.methods.updateSeatStatus = async function(seatNumber, isBooked, userI
   }
   
   if (seatFound) {
-    // Recalculate totals
     let total = 0;
     let available = 0;
     
@@ -281,10 +447,37 @@ showSchema.methods.updateSeatStatus = async function(seatNumber, isBooked, userI
   return false;
 };
 
-showSchema.methods.getAvailableSeats = function() {
-  const availableSeats = [];
+// Get available seats (with optional timingId)
+showSchema.methods.getAvailableSeats = function(timingId = null) {
+  // If timingId provided and has timings
+  if (timingId && this.timings) {
+    const timing = this.timings.find(t => t._id.toString() === timingId);
+    if (timing) {
+      const availableSeats = [];
+      timing.seatCategories.forEach(category => {
+        category.rows.forEach(row => {
+          row.seats.forEach(seat => {
+            if (!seat.isBooked) {
+              availableSeats.push({
+                seatNumber: seat.seatNumber,
+                seatLabel: seat.seatLabel || seat.seatNumber,
+                category: category.category,
+                price: category.pricePerSeat,
+                rowName: row.rowName
+              });
+            }
+          });
+        });
+      });
+      return availableSeats;
+    }
+  }
   
-  this.seatCategories.forEach(category => {
+  // Legacy mode or default timing
+  const availableSeats = [];
+  const categories = this.seatCategories || (this.timings?.[0]?.seatCategories || []);
+  
+  categories.forEach(category => {
     category.rows.forEach(row => {
       row.seats.forEach(seat => {
         if (!seat.isBooked) {
@@ -304,17 +497,24 @@ showSchema.methods.getAvailableSeats = function() {
 };
 
 // ==================== STATIC METHODS ====================
+
+// Find shows by theater
 showSchema.statics.findByTheater = function(theaterId) {
-  return this.find({ theaterId }).sort({ showDate: 1, startTime: 1 });
+  return this.find({ theaterId });
 };
 
+// Find active shows (considering timings)
 showSchema.statics.findActiveShows = function() {
-  return this.find({ 
-    status: { $in: ['BOOKING_OPEN', 'COMING_SOON'] },
-    showDate: { $gte: new Date() }
-  }).sort({ showDate: 1, startTime: 1 });
+  const now = new Date();
+  return this.find({
+    $or: [
+      { timings: { $exists: true, $not: { $size: 0 } }, 'timings.showDate': { $gte: now }, 'timings.status': 'BOOKING_OPEN' },
+      { status: { $in: ['BOOKING_OPEN', 'COMING_SOON'] }, showDate: { $gte: now } }
+    ]
+  });
 };
 
+// Find shows by date
 showSchema.statics.findByDate = function(date) {
   const startDate = new Date(date);
   startDate.setHours(0, 0, 0, 0);
@@ -322,8 +522,11 @@ showSchema.statics.findByDate = function(date) {
   endDate.setHours(23, 59, 59, 999);
   
   return this.find({
-    showDate: { $gte: startDate, $lte: endDate }
-  }).sort({ startTime: 1 });
+    $or: [
+      { 'timings.showDate': { $gte: startDate, $lte: endDate } },
+      { showDate: { $gte: startDate, $lte: endDate } }
+    ]
+  });
 };
 
 // ==================== EXPORT ====================

@@ -56,6 +56,46 @@ const processScreensForStorage = (screens) => {
   }));
 };
 
+// Generate seat categories from screen zones
+const generateSeatCategoriesFromZones = (screen) => {
+  const seatCategories = [];
+  
+  if (screen.zones && screen.zones.length > 0) {
+    for (const zone of screen.zones) {
+      const rows = [];
+      for (const row of zone.rows) {
+        const seats = [];
+        for (let i = 1; i <= row.seatCount; i++) {
+          seats.push({
+            seatNumber: `${row.rowName}${i}`,
+            seatLabel: row.seats?.find(s => s.columnNumber === i)?.seatLabel || `${row.rowName}${i}`,
+            isBooked: false,
+            bookedBy: null,
+            bookingId: null,
+            price: zone.finalPrice || (zone.basePrice * zone.priceMultiplier)
+          });
+        }
+        rows.push({ rowName: row.rowName, seats });
+      }
+      
+      seatCategories.push({
+        category: zone.seatType,
+        zoneId: zone.id,
+        zoneName: zone.name,
+        position: zone.position,
+        color: zone.color,
+        icon: zone.icon,
+        rows: rows,
+        pricePerSeat: zone.finalPrice || (zone.basePrice * zone.priceMultiplier),
+        totalSeats: rows.reduce((acc, row) => acc + row.seats.length, 0),
+        availableSeats: rows.reduce((acc, row) => acc + row.seats.length, 0)
+      });
+    }
+  }
+  
+  return seatCategories;
+};
+
 // ==================== THEATER MANAGEMENT ====================
 
 const createTheater = async (req, res) => {
@@ -420,13 +460,16 @@ const deleteZoneFromScreen = async (req, res) => {
   }
 };
 
-// ==================== SHOW MANAGEMENT ====================
+// ==================== SHOW MANAGEMENT (UPDATED WITH MULTIPLE TIMINGS) ====================
 
+// @desc    Create Show with multiple timings
+// @route   POST /api/admin/show/create
 const createShow = async (req, res) => {
   try {
     const {
-      theaterId, screenId, screenNumber, movie, showDate, startTime, endTime,
-      seatCategories, isPaid, basePrice
+      theaterId, screenId, screenNumber, movie,
+      timings,  // Array of { showDate, startTime, endTime }
+      isPaid, basePrice
     } = req.body;
 
     const theater = await Theater.findById(theaterId);
@@ -439,64 +482,48 @@ const createShow = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Screen not found' });
     }
 
-    let generatedSeatCategories = [];
+    // Check if timings array provided
+    if (!timings || timings.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'At least one show timing is required' 
+      });
+    }
 
-    if (screen.zones && screen.zones.length > 0) {
-      for (const zone of screen.zones) {
-        const rows = [];
-        for (const row of zone.rows) {
-          const seats = [];
-          for (let i = 1; i <= row.seatCount; i++) {
-            seats.push({
-              seatNumber: `${row.rowName}${i}`,
-              seatLabel: row.seats.find(s => s.columnNumber === i)?.seatLabel || `${row.rowName}${i}`,
-              seatId: `${zone.id}_row_${row.rowNumber}_seat_${i}`,
-              isBooked: false,
-              bookedBy: null,
-              bookingId: null
-            });
-          }
-          rows.push({ rowName: row.rowName, seats });
-        }
-        
-        generatedSeatCategories.push({
-          category: zone.seatType,
-          zoneId: zone.id,
-          zoneName: zone.name,
-          position: zone.position,
-          color: zone.color,
-          icon: zone.icon,
-          rows: rows,
-          pricePerSeat: zone.finalPrice || (zone.basePrice * zone.priceMultiplier),
-          totalSeats: rows.reduce((acc, row) => acc + row.seats.length, 0),
-          availableSeats: rows.reduce((acc, row) => acc + row.seats.length, 0)
+    const processedTimings = [];
+
+    for (const timing of timings) {
+      const { showDate, startTime, endTime } = timing;
+
+      if (!showDate || !startTime || !endTime) {
+        return res.status(400).json({
+          success: false,
+          message: 'Each timing must have showDate, startTime, and endTime'
         });
       }
-    } else if (screen.seatRows && screen.seatRows.length > 0 && seatCategories) {
-      for (const categoryConfig of seatCategories) {
-        const categoryRows = screen.seatRows.filter(row => row.category === categoryConfig.category);
-        const rows = [];
-        for (const rowConfig of categoryRows) {
-          const seats = [];
-          for (let i = rowConfig.startSeat; i <= rowConfig.endSeat; i++) {
-            seats.push({
-              seatNumber: i,
-              seatLabel: `${rowConfig.rowName}${i}`,
-              isBooked: false,
-              bookedBy: null,
-              bookingId: null
-            });
-          }
-          rows.push({ rowName: rowConfig.rowName, seats });
-        }
-        generatedSeatCategories.push({
-          category: categoryConfig.category,
-          rows: rows,
-          pricePerSeat: categoryConfig.pricePerSeat,
-          totalSeats: rows.reduce((acc, row) => acc + row.seats.length, 0),
-          availableSeats: rows.reduce((acc, row) => acc + row.seats.length, 0)
+
+      // Generate seat categories from screen zones
+      const seatCategories = generateSeatCategoriesFromZones(screen);
+      
+      if (seatCategories.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No zones configured for this screen. Please add zones first.'
         });
       }
+
+      const totalSeats = seatCategories.reduce((acc, cat) => acc + cat.totalSeats, 0);
+
+      processedTimings.push({
+        showDate: new Date(showDate),
+        startTime,
+        endTime,
+        status: 'BOOKING_OPEN',
+        seatCategories: seatCategories,
+        totalSeats,
+        availableSeats: totalSeats,
+        bookedSeatsCount: 0
+      });
     }
 
     const show = await Show.create({
@@ -504,44 +531,74 @@ const createShow = async (req, res) => {
       screenId,
       screenNumber: screenNumber || screen.screenNumber,
       movie,
-      showDate: new Date(showDate),
-      startTime,
-      endTime,
-      seatCategories: generatedSeatCategories,
+      timings: processedTimings,
       isPaid: isPaid || false,
       basePrice: basePrice || 0,
-      status: 'BOOKING_OPEN',
-      createdBy: req.user.id
+      createdBy: req.user.id,
+      // Legacy fields (for backward compatibility)
+      showDate: processedTimings[0].showDate,
+      startTime: processedTimings[0].startTime,
+      endTime: processedTimings[0].endTime,
+      seatCategories: processedTimings[0].seatCategories,
+      status: processedTimings[0].status,
+      totalSeats: processedTimings[0].totalSeats,
+      availableSeats: processedTimings[0].availableSeats,
+      bookedSeatsCount: 0
     });
 
-    res.status(201).json({ success: true, message: 'Show created successfully', data: show });
+    res.status(201).json({ 
+      success: true, 
+      message: `Show created with ${processedTimings.length} timing(s)`, 
+      data: show 
+    });
   } catch (error) {
     console.error('Create show error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// @desc    Get All Shows (Admin) - Updated to handle timings
+// @route   GET /api/admin/show/all
 const getAllShows = async (req, res) => {
   try {
     const { theaterId, status, fromDate, toDate } = req.query;
     let filter = {};
     
     if (theaterId) filter.theaterId = theaterId;
-    if (status) filter.status = status;
+    
+    // Status filter - check both legacy and timings
+    if (status) {
+      filter.$or = [
+        { status: status },
+        { 'timings.status': status }
+      ];
+    }
+    
+    // Date filter - check both legacy and timings
     if (fromDate && toDate) {
-      filter.showDate = { $gte: new Date(fromDate), $lte: new Date(toDate) };
+      filter.$and = [
+        {
+          $or: [
+            { showDate: { $gte: new Date(fromDate), $lte: new Date(toDate) } },
+            { 'timings.showDate': { $gte: new Date(fromDate), $lte: new Date(toDate) } }
+          ]
+        }
+      ];
     }
 
     const shows = await Show.find(filter)
       .populate('theaterId', 'name location city')
-      .sort({ showDate: 1, startTime: 1 });
+      .sort({ createdAt: -1 });
 
     res.json({ success: true, count: shows.length, data: shows });
   } catch (error) {
+    console.error('Get all shows error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// @desc    Get Detailed Show By ID - Updated to include timings
+// @route   GET /api/admin/show/:id
 const getDetailedShowById = async (req, res) => {
   try {
     const show = await Show.findById(req.params.id)
@@ -555,10 +612,20 @@ const getDetailedShowById = async (req, res) => {
     const theater = await Theater.findById(show.theaterId);
     const screen = theater?.screens?.find(s => s._id.toString() === show.screenId.toString());
 
+    // Format response to include timings info
+    const responseData = show.toObject();
+    if (show.timings && show.timings.length > 0) {
+      responseData.hasMultipleTimings = true;
+      responseData.totalTimings = show.timings.length;
+      responseData.activeTimings = show.timings.filter(t => t.status === 'BOOKING_OPEN').length;
+    } else {
+      responseData.hasMultipleTimings = false;
+    }
+
     res.json({ 
       success: true, 
       data: {
-        ...show.toObject(),
+        ...responseData,
         theaterLayout: {
           screenPosition: theater?.screenPosition,
           screenName: screen?.name,
@@ -568,13 +635,16 @@ const getDetailedShowById = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Get detailed show error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// @desc    Update Show Details - Updated to handle timings
+// @route   PUT /api/admin/show/update/:id
 const updateShow = async (req, res) => {
   try {
-    const { isPaid, basePrice, status, movie, showDate, startTime, endTime, seatCategories } = req.body;
+    const { isPaid, basePrice, status, movie, timings } = req.body;
     const show = await Show.findById(req.params.id);
 
     if (!show) {
@@ -583,39 +653,80 @@ const updateShow = async (req, res) => {
 
     if (isPaid !== undefined) show.isPaid = isPaid;
     if (basePrice !== undefined) show.basePrice = basePrice;
-    if (status !== undefined) show.status = status;
     if (movie !== undefined) show.movie = { ...show.movie.toObject ? show.movie.toObject() : show.movie, ...movie };
-    if (showDate !== undefined) show.showDate = new Date(showDate);
-    if (startTime !== undefined) show.startTime = startTime;
-    if (endTime !== undefined) show.endTime = endTime;
-    if (seatCategories !== undefined) show.seatCategories = seatCategories;
+    
+    // Update timings if provided
+    if (timings !== undefined && timings.length > 0) {
+      show.timings = timings;
+      // Sync legacy fields from first timing
+      const firstTiming = timings[0];
+      show.showDate = firstTiming.showDate;
+      show.startTime = firstTiming.startTime;
+      show.endTime = firstTiming.endTime;
+      show.seatCategories = firstTiming.seatCategories;
+      show.status = firstTiming.status;
+      show.totalSeats = firstTiming.totalSeats;
+      show.availableSeats = firstTiming.availableSeats;
+      show.bookedSeatsCount = firstTiming.bookedSeatsCount;
+    } else if (status !== undefined) {
+      // Legacy mode
+      show.status = status;
+    }
 
     await show.save();
 
     res.json({ success: true, message: 'Show updated successfully', data: show });
   } catch (error) {
+    console.error('Update show error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// @desc    Update Show Status - Updated to handle timing-specific status
+// @route   PUT /api/admin/show/update-status/:id
 const updateShowStatus = async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, timingId } = req.body;
     const show = await Show.findById(req.params.id);
     
     if (!show) {
       return res.status(404).json({ success: false, message: 'Show not found' });
     }
 
-    show.status = status;
+    // If timingId provided, update specific timing
+    if (timingId && show.timings && show.timings.length > 0) {
+      const timing = show.timings.id(timingId);
+      if (!timing) {
+        return res.status(404).json({ success: false, message: 'Timing not found' });
+      }
+      timing.status = status;
+      
+      // Sync legacy fields from first timing
+      const firstTiming = show.timings[0];
+      show.showDate = firstTiming.showDate;
+      show.startTime = firstTiming.startTime;
+      show.endTime = firstTiming.endTime;
+      show.seatCategories = firstTiming.seatCategories;
+      show.status = firstTiming.status;
+      show.totalSeats = firstTiming.totalSeats;
+      show.availableSeats = firstTiming.availableSeats;
+      show.bookedSeatsCount = firstTiming.bookedSeatsCount;
+    } else {
+      // Legacy mode
+      show.status = status;
+    }
+    
     await show.save();
 
     res.json({ success: true, message: `Show status updated to ${status}`, data: show });
   } catch (error) {
+    console.error('Update show status error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// @desc    Delete Show
+// @route   DELETE /api/admin/show/delete/:id
 const deleteShow = async (req, res) => {
   try {
     const show = await Show.findById(req.params.id);
@@ -623,6 +734,7 @@ const deleteShow = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Show not found' });
     }
 
+    // Check for confirmed bookings
     const bookings = await Booking.findOne({ showId: req.params.id, bookingStatus: 'CONFIRMED' });
     if (bookings) {
       return res.status(400).json({ success: false, message: 'Cannot delete show with confirmed bookings' });
@@ -631,10 +743,13 @@ const deleteShow = async (req, res) => {
     await show.deleteOne();
     res.json({ success: true, message: 'Show deleted successfully' });
   } catch (error) {
+    console.error('Delete show error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// @desc    Set all shows to free or paid
+// @route   PUT /api/admin/shows/set-paid-all
 const setAllShowsPaymentMode = async (req, res) => {
   try {
     const { isPaid } = req.body;
@@ -651,6 +766,7 @@ const setAllShowsPaymentMode = async (req, res) => {
       data: { modifiedCount: result.modifiedCount }
     });
   } catch (error) {
+    console.error('Set all shows payment mode error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

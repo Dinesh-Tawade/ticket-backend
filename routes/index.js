@@ -20,7 +20,10 @@ const {
   updateUser,
   updateUserStatus,
   addTheaterToOwner,
-  deleteUser
+  deleteUser,
+  assignSeatsToBuyer,
+  getBuyerAccessibleSeats,
+  removeBuyerSeatAccess
 } = require('../controllers/adminController');
 
 // Theater Controllers (Admin)
@@ -168,6 +171,9 @@ router.put('/admin/users/:id', protect, authorize('SUPER_ADMIN'), updateUser);
 router.put('/admin/update-status/:id', protect, authorize('SUPER_ADMIN'), updateUserStatus);
 router.post('/admin/add-theater/:theaterOwnerId', protect, authorize('SUPER_ADMIN'), addTheaterToOwner);
 router.delete('/admin/users/:id', protect, authorize('SUPER_ADMIN'), deleteUser);
+router.post('/admin/buyer/assign-seats', protect, authorize('SUPER_ADMIN'), assignSeatsToBuyer);
+router.get('/admin/buyer/accessible-seats/:buyerId', protect, authorize('SUPER_ADMIN'), getBuyerAccessibleSeats);
+router.delete('/admin/buyer/remove-seat-access/:buyerId/:accessId', protect, authorize('SUPER_ADMIN'), removeBuyerSeatAccess);
 
 // Theater Management (Admin)
 router.post('/admin/theater/create', protect, authorize('SUPER_ADMIN'), createTheater);

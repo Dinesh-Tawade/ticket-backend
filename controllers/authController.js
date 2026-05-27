@@ -67,6 +67,8 @@ const register = async (req, res) => {
       role: user.role,
       status: user.status,
       profileImage: user.profileImage,
+      assignedZone: user.assignedZone || null,
+      assignedSeats: user.assignedSeats || [],
       message: "Registration successful!",
       token: generateToken(user._id)
     });
@@ -115,6 +117,8 @@ const login = async (req, res) => {
       role: user.role,
       status: user.status,
       profileImage: user.profileImage,
+      assignedZone: user.assignedZone || null,
+      assignedSeats: user.assignedSeats || [],
       ...(user.role === 'THEATER_OWNER' && { theaters: user.theaters }),
       ...(user.role === 'VENDOR' && { storeName: user.storeName, vendorType: user.vendorType, isOpen: user.isOpen }),
       token: generateToken(user._id)

@@ -11,7 +11,7 @@ const generateToken = (id) => {
 // @route   POST /api/users/register
 const registerBuyer = async (req, res) => {
   try {
-    const { name, email, password, confirmPassword, phone, address } = req.body;
+    const { name, email, password, confirmPassword, phone, address, assignedZone, assignedSeats } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ success: false, message: "Please add all fields" });
@@ -85,6 +85,8 @@ const loginBuyer = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      assignedZone: user.assignedZone || null,
+      assignedSeats: user.assignedSeats || [],
       token: generateToken(user._id)
     });
   } catch (error) {

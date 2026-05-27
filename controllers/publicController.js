@@ -1,5 +1,6 @@
 const Show = require('../models/Show');
 const Theater = require('../models/Theater');
+const User = require('../models/User');
 
 // @desc    Get all shows (Public)
 // @route   GET /api/public/shows
@@ -45,6 +46,35 @@ const getTrendingShows = async (req, res) => {
   }
 };
 
+// Helper function to get buyer's accessible seats
+const getBuyerAccessibleSeats = async (userId, theaterId, screenId) => {
+  if (!userId) return null;
+  
+  try {
+    const user = await User.findById(userId);
+    if (!user || user.role !== 'BUYER') return null;
+    
+    // Find access for this theater
+    const access = user.accessibleSeats?.find(
+      a => a.theaterId?.toString() === theaterId?.toString() && a.isActive === true
+    );
+    
+    if (!access) return null;
+    
+    // Check expiry
+    if (access.validUntil && new Date() > new Date(access.validUntil)) return null;
+    
+    return {
+      zoneId: access.zoneId,
+      zoneName: access.zoneName,
+      seatNumbers: access.seatNumbers || []
+    };
+  } catch (error) {
+    console.error("Error getting buyer accessible seats:", error);
+    return null;
+  }
+};
+
 // @desc    Get show by ID (with seat layout)
 // @route   GET /api/public/shows/:id
 const getShowById = async (req, res) => {
@@ -62,22 +92,40 @@ const getShowById = async (req, res) => {
     // Find the screen in theater that matches show's screenId
     const screen = theater?.screens?.find(s => s._id.toString() === show.screenId.toString());
     
-    // Prepare seat categories with proper formatting
-    const formattedSeatCategories = show.seatCategories?.map(category => ({
-      category: category.category,
-      pricePerSeat: category.pricePerSeat,
-      totalSeats: category.totalSeats,
-      availableSeats: category.availableSeats,
-      rows: category.rows?.map(row => ({
-        rowName: row.rowName,
-        seats: row.seats?.map(seat => ({
-          seatNumber: seat.seatNumber,
-          seatLabel: seat.seatLabel || seat.seatNumber,
-          isBooked: seat.isBooked,
-          price: category.pricePerSeat
+    // Get buyer's accessible seats if logged in
+    const buyerAccess = req.user ? await getBuyerAccessibleSeats(req.user.id, show.theaterId._id, show.screenId) : null;
+    
+    // Prepare seat categories with proper formatting and access control
+    const formattedSeatCategories = show.seatCategories?.map(category => {
+      // Check if this zone is accessible to buyer
+      const isZoneAccessible = buyerAccess ? (buyerAccess.zoneName === category.category) : true;
+      
+      return {
+        category: category.category,
+        pricePerSeat: category.pricePerSeat,
+        totalSeats: category.totalSeats,
+        availableSeats: category.availableSeats,
+        isAccessible: isZoneAccessible,  // ✅ Zone-level access flag
+        rows: category.rows?.map(row => ({
+          rowName: row.rowName,
+          seats: row.seats?.map(seat => {
+            // Check if this specific seat is accessible to buyer
+            const isSeatAccessible = buyerAccess 
+              ? (buyerAccess.seatNumbers.includes(seat.seatNumber) && isZoneAccessible)
+              : true;
+            
+            return {
+              seatNumber: seat.seatNumber,
+              seatLabel: seat.seatLabel || seat.seatNumber,
+              isBooked: seat.isBooked,
+              price: category.pricePerSeat,
+              isAccessible: isSeatAccessible,      // ✅ Seat-level access flag
+              canBook: !seat.isBooked && isSeatAccessible  // ✅ Can book if not booked AND accessible
+            };
+          })
         }))
-      }))
-    })) || [];
+      };
+    }) || [];
 
     // Prepare response with complete seat layout
     const responseData = {
@@ -90,6 +138,14 @@ const getShowById = async (req, res) => {
         zones: screen?.zones || [],
         totalSeats: show.totalSeats,
         availableSeats: show.availableSeats
+      },
+      buyerAccessInfo: buyerAccess ? {
+        hasAccess: true,
+        zoneName: buyerAccess.zoneName,
+        assignedSeatCount: buyerAccess.seatNumbers.length
+      } : {
+        hasAccess: false,
+        message: req.user ? "No seats assigned to you for this theater" : "Login to see your assigned seats"
       }
     };
 
@@ -114,8 +170,14 @@ const getAvailableSeats = async (req, res) => {
     const theater = await Theater.findById(show.theaterId);
     const screen = theater?.screens?.find(s => s._id.toString() === show.screenId.toString());
     
-    // Prepare seat map with zone colors
+    // Get buyer's accessible seats if logged in
+    const buyerAccess = req.user ? await getBuyerAccessibleSeats(req.user.id, show.theaterId, show.screenId) : null;
+    
+    // Prepare seat map with zone colors and access control
     const seatCategories = show.seatCategories?.map(category => {
+      // Check if this zone is accessible to buyer
+      const isZoneAccessible = buyerAccess ? (buyerAccess.zoneName === category.category) : true;
+      
       // Get zone color for this category
       const zone = screen?.zones?.find(z => z.seatType === category.category);
       const zoneColor = zone?.color || 
@@ -127,14 +189,24 @@ const getAvailableSeats = async (req, res) => {
         category: category.category,
         pricePerSeat: category.pricePerSeat,
         color: zoneColor,
+        isAccessible: isZoneAccessible,
         rows: category.rows?.map(row => ({
           rowName: row.rowName,
-          seats: row.seats?.map(seat => ({
-            seatNumber: seat.seatNumber,
-            isBooked: seat.isBooked,
-            price: category.pricePerSeat,
-            seatLabel: seat.seatLabel || seat.seatNumber
-          }))
+          seats: row.seats?.map(seat => {
+            // Check if this specific seat is accessible to buyer
+            const isSeatAccessible = buyerAccess 
+              ? (buyerAccess.seatNumbers.includes(seat.seatNumber) && isZoneAccessible)
+              : true;
+            
+            return {
+              seatNumber: seat.seatNumber,
+              isBooked: seat.isBooked,
+              price: category.pricePerSeat,
+              seatLabel: seat.seatLabel || seat.seatNumber,
+              isAccessible: isSeatAccessible,      // ✅ Frontend will show as disabled if false
+              canBook: !seat.isBooked && isSeatAccessible  // ✅ Booking possible only if true
+            };
+          })
         }))
       };
     }) || [];
@@ -146,7 +218,15 @@ const getAvailableSeats = async (req, res) => {
         totalSeats: show.totalSeats,
         availableSeats: show.availableSeats,
         screenPosition: theater?.screenPosition || "top",
-        zones: screen?.zones || []
+        zones: screen?.zones || [],
+        buyerAccess: buyerAccess ? {
+          hasAccess: true,
+          zoneName: buyerAccess.zoneName,
+          assignedSeatNumbers: buyerAccess.seatNumbers
+        } : {
+          hasAccess: false,
+          message: req.user ? "No seats assigned" : "Login required"
+        }
       } 
     });
   } catch (error) {
@@ -175,5 +255,5 @@ module.exports = {
   getTrendingShows,
   getShowById,
   getAllTheaters,
-  getAvailableSeats  // ✅ Add this export
+  getAvailableSeats
 };

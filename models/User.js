@@ -63,6 +63,49 @@ const userSchema = new mongoose.Schema({
     get: decrypt
   },
 
+  // ==================== BUYER SPECIFIC FIELDS ====================
+  // ✅ Theater-specific seat access (Dynamic - loads from Theater model)
+  accessibleSeats: [{
+    theaterId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Theater',
+      required: true
+    },
+    zoneId: {
+      type: String,  // "zone_1", "zone_2" etc. - matches Theater.screens[].zones[].id
+      required: true
+    },
+    zoneName: {
+      type: String  // Denormalized for quick access: "PREMIUM", "VIP" etc.
+    },
+    seatNumbers: [{
+      type: String  // "X1", "X2", "Y5", "Z10"
+    }],
+    assignedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    assignedAt: {
+      type: Date,
+      default: Date.now
+    },
+    validUntil: {
+      type: Date,
+      default: null
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    }
+  }],
+
+  // Legacy field - keep for backward compatibility (can be removed later)
+  assignedSeats: [{
+    rowName: { type: String },
+    seatNumber: { type: String },
+    showId: { type: mongoose.Schema.Types.ObjectId, ref: 'Show', default: null }
+  }],
+
   // ==================== THEATER OWNER SPECIFIC FIELDS ====================
   theaters: [{
     theaterName: {
@@ -177,6 +220,35 @@ userSchema.pre('save', async function(next) {
 // Compare password method
 userSchema.methods.comparePassword = async function(password) {
   return await bcrypt.compare(password, this.password);
+};
+
+// ✅ Helper method to check if buyer can book a seat
+userSchema.methods.canBookSeat = function(theaterId, zoneId, seatNumber) {
+  const access = this.accessibleSeats.find(
+    a => a.theaterId.toString() === theaterId.toString() && 
+         a.zoneId === zoneId && 
+         a.isActive === true
+  );
+  
+  if (!access) return false;
+  
+  // Check expiry
+  if (access.validUntil && new Date() > new Date(access.validUntil)) return false;
+  
+  // Check if seat is in assigned list
+  return access.seatNumbers.includes(seatNumber);
+};
+
+// ✅ Helper method to get all accessible seats for a theater
+userSchema.methods.getAccessibleSeatsForTheater = function(theaterId) {
+  const access = this.accessibleSeats.find(
+    a => a.theaterId.toString() === theaterId.toString() && a.isActive === true
+  );
+  
+  if (!access) return [];
+  if (access.validUntil && new Date() > new Date(access.validUntil)) return [];
+  
+  return access.seatNumbers;
 };
 
 module.exports = mongoose.model('User', userSchema);
