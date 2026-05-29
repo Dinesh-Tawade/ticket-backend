@@ -143,7 +143,7 @@ const zoneSchema = new mongoose.Schema({
   totalRows: {
     type: Number,
     required: true,
-    min: 1
+    min: 0
   },
   totalSeats: {
     type: Number,
@@ -326,6 +326,11 @@ const theaterSchema = new mongoose.Schema({
   layout: {
     type: Object,
     default: {}
+  },
+  layoutMeta: {
+    type: Object,
+    default: {},
+    description: 'Metadata for layout builder (zones, aisles, row naming, etc.)'
   },
   
   // Images
