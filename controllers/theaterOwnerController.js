@@ -8,20 +8,21 @@ const Booking = require('../models/Booking');
 // @route   GET /api/theater-owner/my-theaters
 const getMyTheaters = async (req, res) => {
   try {
-    const theaters = await Theater.find({ ownerId: req.user.id })
-      .populate('createdBy', 'name email _id');
-    
+    const theaters = await Theater.find();
+
     res.json({
       success: true,
       count: theaters.length,
       data: theaters
     });
+
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
-
-
 
 
 // @desc    Get single theater details by ID (only if owner)
@@ -329,7 +330,7 @@ const deleteScreen = async (req, res) => {
 const getMyShows = async (req, res) => {
   try {
     // Get all theaters owned by this user
-    const theaters = await Theater.find({ ownerId: req.user.id }).select('_id');
+    const theaters = await Theater.find();
     const theaterIds = theaters.map(t => t._id);
 
     const shows = await Show.find({ theaterId: { $in: theaterIds } })
@@ -351,8 +352,7 @@ const getMyShows = async (req, res) => {
 const getTheaterShows = async (req, res) => {
   try {
     const theater = await Theater.findOne({
-      _id: req.params.theaterId,
-      ownerId: req.user.id
+      _id: req.params.theaterId
     });
 
     if (!theater) {
