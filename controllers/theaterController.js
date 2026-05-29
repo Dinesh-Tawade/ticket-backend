@@ -26,7 +26,12 @@ const processZonesForStorage = (zones) => {
     ...zone,
     finalPrice: (zone.basePrice || 0) * (zone.priceMultiplier || 1),
     totalSeats: zone.rows ? zone.rows.reduce((sum, row) => sum + (row.seatCount || row.seats?.length || 0), 0) : (zone.totalSeats || 0),
-    totalRows: zone.rows?.length || zone.totalRows || 0,
+    // totalRows: zone.rows?.length || zone.totalRows || 0,
+    totalRows: Math.max(
+      zone.rows?.length || 0,
+      zone.totalRows || 0,
+      0
+    ),
     rows: zone.rows?.map(row => ({
       ...row,
       seatCount: row.seatCount || row.seats?.length || 0,
@@ -102,7 +107,9 @@ const createTheater = async (req, res) => {
   try {
     const {
       ownerId, name, location, city, state, pincode, contactNumber,
-      screens, images, amenities, screenPosition, layout
+      screens, images, amenities, screenPosition, layout,
+      hasRecliner, hasWifi, hasParking, hasCafe, hasWheelchair,
+      layoutMeta, totalScreens: reqTotalScreens, totalZones: reqTotalZones, totalSeats: reqTotalSeats
     } = req.body;
 
     const owner = await User.findOne({ _id: ownerId, role: 'THEATER_OWNER' });
@@ -130,11 +137,12 @@ const createTheater = async (req, res) => {
       totalSeats,
       screenPosition: screenPosition || 'top',
       layout: layout || {},
-      hasRecliner: amenities?.hasRecliner || false,
-      hasWifi: amenities?.hasWifi || false,
-      hasParking: amenities?.hasParking || false,
-      hasCafe: amenities?.hasCafe || false,
-      hasWheelchair: amenities?.hasWheelchair || false,
+      layoutMeta: layoutMeta || {},
+      hasRecliner: hasRecliner !== undefined ? hasRecliner : (amenities?.hasRecliner || false),
+      hasWifi: hasWifi !== undefined ? hasWifi : (amenities?.hasWifi || false),
+      hasParking: hasParking !== undefined ? hasParking : (amenities?.hasParking || false),
+      hasCafe: hasCafe !== undefined ? hasCafe : (amenities?.hasCafe || false),
+      hasWheelchair: hasWheelchair !== undefined ? hasWheelchair : (amenities?.hasWheelchair || false),
       createdBy: req.user.id,
       status: 'ACTIVE'
     });
@@ -193,7 +201,9 @@ const updateTheater = async (req, res) => {
 
     const {
       name, location, city, state, pincode, contactNumber, status,
-      screens, images, amenities, screenPosition, layout
+      screens, images, amenities, screenPosition, layout,
+      hasRecliner, hasWifi, hasParking, hasCafe, hasWheelchair,
+      layoutMeta, totalScreens, totalZones, totalSeats
     } = req.body;
 
     if (name !== undefined) theater.name = name;
@@ -205,6 +215,14 @@ const updateTheater = async (req, res) => {
     if (status !== undefined) theater.status = status;
     if (screenPosition !== undefined) theater.screenPosition = screenPosition;
     if (layout !== undefined) theater.layout = layout;
+    if (layoutMeta !== undefined) theater.layoutMeta = layoutMeta;
+
+    // Handle amenities - both from direct fields and nested amenities object
+    if (hasRecliner !== undefined) theater.hasRecliner = hasRecliner;
+    if (hasWifi !== undefined) theater.hasWifi = hasWifi;
+    if (hasParking !== undefined) theater.hasParking = hasParking;
+    if (hasCafe !== undefined) theater.hasCafe = hasCafe;
+    if (hasWheelchair !== undefined) theater.hasWheelchair = hasWheelchair;
 
     if (amenities) {
       if (amenities.hasRecliner !== undefined) theater.hasRecliner = amenities.hasRecliner;
