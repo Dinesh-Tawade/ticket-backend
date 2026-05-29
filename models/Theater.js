@@ -140,6 +140,14 @@ const zoneSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+   noSeat: {
+    type: Boolean,
+    default: false
+  },
+  label: {
+    type: String,
+    default: ""
+  },
   totalRows: {
     type: Number,
     required: true,
@@ -154,6 +162,14 @@ const zoneSchema = new mongoose.Schema({
     type: [rowSchema],
     default: []
   },
+  // noSeat: {
+  // type: Boolean,
+  // default: false
+  // },
+  // label: {
+  //   type: String,
+  //   default: ''
+  // },
   status: {
     type: String,
     enum: ['ACTIVE', 'INACTIVE', 'MAINTENANCE'],
