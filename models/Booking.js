@@ -6,7 +6,7 @@ const bookedSeatSchema = new mongoose.Schema({
     required: true
   },
   seatNumber: {
-    type: Number,
+    type: String,  // Number se String mein badlo
     required: true
   },
   category: {

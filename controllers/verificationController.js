@@ -115,13 +115,32 @@ const verifyTicket = async (req, res) => {
 // @route   PUT /api/verify/ticket/use/:bookingId
 const markTicketAsUsed = async (req, res) => {
   try {
-    const { bookingId } = req.params;
+    // Support both params and body
+    let bookingId = req.params.bookingId || req.body.bookingId;
+    
+    // Agar QR code full string aa raha hai (e.g., "BK1780052858517829QRUJW|N|N1|NN1")
+    if (bookingId && bookingId.includes('|')) {
+      const parts = bookingId.split('|');
+      bookingId = parts[0]; // First part is the actual booking ID
+      console.log('Extracted Booking ID from QR:', bookingId);
+    }
     
     console.log('=== CHECK-IN REQUEST ===');
+    console.log('Raw input:', req.params.bookingId || req.body.bookingId);
     console.log('Booking ID:', bookingId);
     console.log('Checked in by:', req.user?.id);
 
-    const booking = await Booking.findOne({ bookingId });
+    if (!bookingId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Booking ID is required' 
+      });
+    }
+
+    const booking = await Booking.findOne({ bookingId })
+      .populate('theaterId', 'name address')
+      .populate('showId', 'movieName showDate startTime')
+      .populate('customer', 'name email phone');
 
     if (!booking) {
       return res.status(404).json({ 
@@ -130,6 +149,15 @@ const markTicketAsUsed = async (req, res) => {
       });
     }
 
+    // Check if booking is already checked in
+    if (booking.isCheckedIn) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Ticket already checked in' 
+      });
+    }
+
+    // Check booking status
     if (booking.bookingStatus !== 'CONFIRMED') {
       return res.status(400).json({ 
         success: false, 
@@ -137,10 +165,15 @@ const markTicketAsUsed = async (req, res) => {
       });
     }
 
-    if (booking.isCheckedIn) {
+    // Optional: Check if show date/time is valid (not expired)
+    const showDate = new Date(booking.showDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (showDate < today) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Ticket already checked in' 
+        message: 'Cannot check in. Show date has passed.' 
       });
     }
 
@@ -149,23 +182,41 @@ const markTicketAsUsed = async (req, res) => {
     booking.checkedInAt = new Date();
     booking.checkedInBy = req.user?.id;
     booking.checkedInSeatsCount = booking.seats?.length || 0;
+    booking.bookingStatus = 'COMPLETED'; // Optional: Update status to COMPLETED
     
     await booking.save();
 
     console.log('Check-in successful for:', bookingId);
 
+    // Prepare response data for frontend display
+    const responseData = {
+      bookingId: booking.bookingId,
+      checkedInAt: booking.checkedInAt,
+      customer: booking.customer ? {
+        name: booking.customer.name,
+        email: booking.customer.email,
+        phone: booking.customer.phone
+      } : null,
+      movieName: booking.movieName,
+      showDate: booking.showDate,
+      showTime: booking.showTime,
+      seats: booking.seats,
+      totalAmount: booking.totalAmount,
+      theaterName: booking.theaterId?.name
+    };
+
     res.json({
       success: true,
-      message: 'Check-in successful',
-      data: {
-        bookingId: booking.bookingId,
-        checkedInAt: booking.checkedInAt
-      }
+      message: 'Check-in successful. Entry granted!',
+      data: responseData
     });
 
   } catch (error) {
     console.error('Check-in error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Internal server error' 
+    });
   }
 };
 

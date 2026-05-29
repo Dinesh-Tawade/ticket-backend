@@ -119,6 +119,7 @@ const login = async (req, res) => {
       profileImage: user.profileImage,
       assignedZone: user.assignedZone || null,
       assignedSeats: user.assignedSeats || [],
+      accessibleSeats: user.accessibleSeats || [],
       ...(user.role === 'THEATER_OWNER' && { theaters: user.theaters }),
       ...(user.role === 'VENDOR' && { storeName: user.storeName, vendorType: user.vendorType, isOpen: user.isOpen }),
       token: generateToken(user._id)

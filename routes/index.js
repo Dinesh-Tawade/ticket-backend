@@ -1,5 +1,5 @@
 const express = require('express');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, optionalProtect } = require('../middleware/auth');
 const { uploadSingle, upload } = require('../middleware/upload');
 
 // Auth Controllers
@@ -142,8 +142,7 @@ router.get('/public/shows', publicGetAllShows);
 router.get('/public/shows/trending', getTrendingShows);
 router.get('/public/shows/:id', publicGetShowById);
 router.get('/public/theaters', publicGetAllTheaters);
-router.get('/public/shows/:id/seats', getAvailableSeats);
-router.get('/public/shows/:id/seats', getAvailableSeats);
+router.get('/public/shows/:id/seats', optionalProtect, getAvailableSeats);
 router.post('/verify/ticket', verifyTicket);
 
 // ==================== PROTECTED ROUTES (All Authenticated Users) ====================
@@ -176,13 +175,13 @@ router.get('/admin/buyer/accessible-seats/:buyerId', protect, authorize('SUPER_A
 router.delete('/admin/buyer/remove-seat-access/:buyerId/:accessId', protect, authorize('SUPER_ADMIN'), removeBuyerSeatAccess);
 
 // Theater Management (Admin)
-router.post('/admin/theater/create', protect, authorize('SUPER_ADMIN'), createTheater);
+router.post('/admin/theater/create', protect, authorize('SUPER_ADMIN',), createTheater);
 router.get('/admin/theater/all', protect, authorize('SUPER_ADMIN'), adminGetAllTheaters);
-router.get('/admin/theater/:id', protect, authorize('SUPER_ADMIN'), adminGetTheaterById);
-router.put('/admin/theater/update/:id', protect, authorize('SUPER_ADMIN'), adminUpdateTheater);
-router.post('/admin/theater/add-screen/:id', protect, authorize('SUPER_ADMIN'), addScreenToTheater);
-router.delete('/admin/theater/delete/:id', protect, authorize('SUPER_ADMIN'), adminDeleteTheater);
-router.delete('/admin/theater/delete-screen/:id/:screenId', protect, authorize('SUPER_ADMIN'), deleteScreenFromTheater);
+router.get('/admin/theater/:id', protect, authorize('SUPER_ADMIN','THEATER_OWNER'), adminGetTheaterById);
+router.put('/admin/theater/update/:id', protect, authorize('SUPER_ADMIN','THEATER_OWNER'), adminUpdateTheater);
+router.post('/admin/theater/add-screen/:id', protect, authorize('SUPER_ADMIN','THEATER_OWNER'), addScreenToTheater);
+router.delete('/admin/theater/delete/:id', protect, authorize('SUPER_ADMIN','THEATER_OWNER'), adminDeleteTheater);
+router.delete('/admin/theater/delete-screen/:id/:screenId', protect, authorize('SUPER_ADMIN','THEATER_OWNER'), deleteScreenFromTheater);
 
 // Zone Management (Admin) - NEW ROUTES
 router.post('/admin/theater/add-zone/:id/:screenId', protect, authorize('SUPER_ADMIN'), addZoneToScreen);

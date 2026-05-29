@@ -2,7 +2,55 @@ const Show = require('../models/Show');
 const Booking = require('../models/Booking');
 const User = require('../models/User');
 
-// @desc    Get Available Seats for a Show
+/** Merge all active seat assignments for a theater (multiple zones supported). */
+const collectAccessibleSeatNumbers = (accessibleSeats, theaterId) => {
+  if (!accessibleSeats?.length || !theaterId) return [];
+
+  const theaterIdStr = theaterId.toString();
+  const seatSet = new Set();
+
+  for (const access of accessibleSeats) {
+    if (access.theaterId?.toString() !== theaterIdStr) continue;
+    if (access.isActive === false) continue;
+    if (access.validUntil && new Date() > new Date(access.validUntil)) continue;
+    (access.seatNumbers || []).forEach((num) => {
+      if (num) seatSet.add(num);
+    });
+  }
+
+  return [...seatSet];
+};
+
+const resolveSeatCategories = (show, timingId) => {
+  if (timingId && show.timings?.length) {
+    const timing = show.timings.find((t) => t._id.toString() === timingId);
+    if (timing?.seatCategories?.length) return timing.seatCategories;
+  }
+  return show.seatCategories || [];
+};
+
+const normalizeSeatKey = (value) =>
+  value ? String(value).trim().toUpperCase().replace(/\s+/g, '') : '';
+
+const isSeatAccessible = (seatNumber, accessibleSeatNumbers, seatLabel = null) => {
+  if (!accessibleSeatNumbers.length) return false;
+  const normalizedList = accessibleSeatNumbers.map(normalizeSeatKey);
+  const candidates = [seatNumber, seatLabel]
+    .filter(Boolean)
+    .map(normalizeSeatKey);
+  if (candidates.some((c) => normalizedList.includes(c))) return true;
+  // Legacy: stored as row+number without full label
+  const primary = seatNumber || seatLabel;
+  const rowMatch = primary?.match(/^([A-Z]+)/i);
+  if (rowMatch) {
+    const suffix = primary.slice(rowMatch[1].length);
+    const alt = normalizeSeatKey(`${rowMatch[1]}${suffix}`);
+    return normalizedList.includes(alt);
+  }
+  return false;
+};
+
+// @desc    Get Available Seats for a Show (With Accessible Seats Filter)
 // @route   GET /api/public/shows/:id/seats
 const getAvailableSeats = async (req, res) => {
   try {
@@ -11,41 +59,95 @@ const getAvailableSeats = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Show not found' });
     }
 
+    const { timingId } = req.query;
+    const theaterId = show.theaterId?._id || show.theaterId;
+
+    let accessibleSeatNumbers = [];
+    if (req.user?.id) {
+      const user = await User.findById(req.user.id).select('accessibleSeats role');
+      accessibleSeatNumbers = collectAccessibleSeatNumbers(user?.accessibleSeats, theaterId);
+
+      // Theater owners / buyers with assignments must only see assigned seats
+      if (
+        accessibleSeatNumbers.length === 0 &&
+        user &&
+        ['THEATER_OWNER', 'BUYER'].includes(user.role) &&
+        user.accessibleSeats?.some((a) => a.theaterId?.toString() === theaterId?.toString())
+      ) {
+        return res.json({
+          success: true,
+          data: {
+            showId: show._id,
+            movieName: show.movie?.name,
+            showDate: show.showDate,
+            startTime: show.startTime,
+            seatMap: {},
+            seatCategories: [],
+            totalSeats: show.totalSeats,
+            availableSeats: show.availableSeats,
+            accessibleSeats: [],
+            message: 'No active seat access for this theater',
+          },
+        });
+      }
+    }
+
+    const seatCategories = resolveSeatCategories(show, timingId);
     const seatMap = {};
-    show.seatCategories.forEach(category => {
-      seatMap[category.category] = {};
-      category.rows.forEach(row => {
-        seatMap[category.category][row.rowName] = row.seats.map(seat => ({
-          seatNumber: seat.seatNumber,
-          isBooked: seat.isBooked,
-          price: show.isPaid ? category.pricePerSeat : 0
-        }));
-      });
-    });
+    const enrichedCategories = JSON.parse(JSON.stringify(seatCategories)).map((category) => ({
+      ...category,
+      rows: (category.rows || []).map((row) => ({
+        ...row,
+        seats: (row.seats || []).map((seat) => {
+          const accessible = isSeatAccessible(
+            seat.seatNumber,
+            accessibleSeatNumbers,
+            seat.seatLabel
+          );
+          const entry = {
+            seatNumber: seat.seatNumber,
+            rowName: row.rowName,
+            isBooked: !!seat.isBooked,
+            price: show.isPaid ? category.pricePerSeat : 0,
+            isAccessible: accessible,
+          };
+          if (!seatMap[category.category]) seatMap[category.category] = {};
+          if (!seatMap[category.category][row.rowName]) seatMap[category.category][row.rowName] = [];
+          seatMap[category.category][row.rowName].push(entry);
+          return { ...seat, ...entry };
+        }),
+      })),
+    }));
 
     res.json({
       success: true,
       data: {
         showId: show._id,
-        movieName: show.movie.name,
+        movieName: show.movie?.name,
         showDate: show.showDate,
         startTime: show.startTime,
         seatMap,
+        seatCategories: enrichedCategories,
         totalSeats: show.totalSeats,
-        availableSeats: show.availableSeats
-      }
+        availableSeats: show.availableSeats,
+        accessibleSeats: accessibleSeatNumbers,
+      },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Book Tickets
+// @desc    Book Tickets (With Accessible Seats Validation)
 // @route   POST /api/public/booking/create
 const createBooking = async (req, res) => {
   try {
-    const { showId, seats } = req.body;
+    const { showId, seats, timingId } = req.body;
     const userId = req.user.id;
+    console.log('🔍 Received booking request:', JSON.stringify({ showId, timingId, seats }, null, 2));
+    if (!seats || seats.length === 0) {
+      return res.status(400).json({ success: false, message: 'No seats selected' });
+    }
 
     if (seats.length > 40) {
       return res.status(400).json({ success: false, message: 'Maximum 40 seats per booking' });
@@ -56,21 +158,53 @@ const createBooking = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Show not found' });
     }
 
-    if (show.status !== 'BOOKING_OPEN') {
-      return res.status(400).json({ success: false, message: `Show is ${show.status}. Cannot book tickets` });
+    // Get current timing if multiple timings exist
+    let currentTiming = show;
+    if (show.timings && show.timings.length > 0 && timingId) {
+      currentTiming = show.timings.find(t => t._id.toString() === timingId);
+      if (!currentTiming) {
+        return res.status(404).json({ success: false, message: 'Timing not found' });
+      }
     }
 
-    const user = await User.findById(userId).select('assignedZone assignedSeats');
-    const allowedZone = user?.assignedZone || null;
-    const allowedSeatKeys = (user?.assignedSeats || []).map((seat) => {
-      if (!seat) return null;
-      if (typeof seat === 'string') return seat;
-      return `${seat.rowName}${seat.seatNumber}`;
-    }).filter(Boolean);
+    // Check show status
+    const showStatus = currentTiming.status || show.status;
+    if (showStatus !== 'BOOKING_OPEN') {
+      return res.status(400).json({ success: false, message: `Show is ${showStatus}. Cannot book tickets` });
+    }
+
+    const user = await User.findById(userId).select('accessibleSeats role');
+    const theaterId = show.theaterId?._id || show.theaterId;
+    const accessibleSeatNumbers = collectAccessibleSeatNumbers(user?.accessibleSeats, theaterId);
+
+    // Users with assigned seats can only book those seats
+    if (accessibleSeatNumbers.length > 0) {
+      for (const selectedSeat of seats) {
+        const seatId = selectedSeat.seatNumber;
+        if (!isSeatAccessible(seatId, accessibleSeatNumbers)) {
+          return res.status(403).json({
+            success: false,
+            message: `Seat ${seatId} is not assigned to you. You can only book: ${accessibleSeatNumbers.join(', ')}`,
+          });
+        }
+      }
+    } else if (
+      user &&
+      ['THEATER_OWNER', 'BUYER'].includes(user.role) &&
+      user.accessibleSeats?.some((a) => a.theaterId?.toString() === theaterId?.toString())
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'You have no active seat access for this theater. Contact admin.',
+      });
+    }
 
     let totalAmount = 0;
     const bookedSeats = [];
-    const seatCategories = [...show.seatCategories];
+    
+    // Use seatCategories from currentTiming if available
+    let seatCategories = currentTiming.seatCategories || show.seatCategories;
+    seatCategories = JSON.parse(JSON.stringify(seatCategories)); // Deep clone
 
     for (const selectedSeat of seats) {
       let seatFound = false;
@@ -78,24 +212,11 @@ const createBooking = async (req, res) => {
       for (const category of seatCategories) {
         for (const row of category.rows) {
           if (row.rowName === selectedSeat.rowName) {
-            const seatKey = `${selectedSeat.rowName}${selectedSeat.seatNumber}`;
-            if (allowedZone && category.category !== allowedZone) {
-              return res.status(403).json({
-                success: false,
-                message: `You can only book seats in the ${allowedZone} zone.`
-              });
-            }
-            if (allowedSeatKeys.length > 0 && !allowedSeatKeys.includes(seatKey)) {
-              return res.status(403).json({
-                success: false,
-                message: `Seat ${seatKey} is not assigned to your account.`
-              });
-            }
-
             const seat = row.seats.find(s => s.seatNumber === selectedSeat.seatNumber);
             if (seat && !seat.isBooked) {
               seat.isBooked = true;
               seat.bookedBy = userId;
+              seat.bookingId = null;
               seatFound = true;
               const seatPrice = show.isPaid ? category.pricePerSeat : 0;
               totalAmount += seatPrice;
@@ -118,11 +239,25 @@ const createBooking = async (req, res) => {
       }
       
       if (!seatFound) {
-        return res.status(404).json({ success: false, message: `Seat ${selectedSeat.rowName}${selectedSeat.seatNumber} not found` });
+        return res.status(404).json({ 
+          success: false, 
+          message: `Seat ${selectedSeat.rowName}${selectedSeat.seatNumber} not found` 
+        });
       }
     }
 
-    show.seatCategories = seatCategories;
+    // Update seatCategories back to show/timing
+    if (currentTiming !== show) {
+      const timingIndex = show.timings.findIndex(t => t._id.toString() === timingId);
+      show.timings[timingIndex].seatCategories = seatCategories;
+      show.timings[timingIndex].bookedSeatsCount = (show.timings[timingIndex].bookedSeatsCount || 0) + seats.length;
+      show.timings[timingIndex].availableSeats = show.timings[timingIndex].totalSeats - show.timings[timingIndex].bookedSeatsCount;
+    } else {
+      show.seatCategories = seatCategories;
+      show.bookedSeatsCount = (show.bookedSeatsCount || 0) + seats.length;
+      show.availableSeats = show.totalSeats - show.bookedSeatsCount;
+    }
+    
     await show.save();
 
     const expiresAt = new Date();
@@ -138,13 +273,18 @@ const createBooking = async (req, res) => {
       totalAmount = 0;
     }
 
+    // Generate unique booking ID
+    const bookingId = `BK${Date.now()}${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
+
     const booking = await Booking.create({
+      bookingId,
       userId,
       showId,
+      timingId: currentTiming !== show ? timingId : null,
       theaterId: show.theaterId,
       movieName: show.movie.name,
-      showDate: show.showDate,
-      showTime: show.startTime,
+      showDate: currentTiming.showDate || show.showDate,
+      showTime: currentTiming.startTime || show.startTime,
       seats: bookedSeats,
       totalSeats: seats.length,
       totalAmount,
@@ -152,6 +292,25 @@ const createBooking = async (req, res) => {
       bookingStatus,
       expiresAt
     });
+
+    // Update bookingId in seats
+    for (const category of seatCategories) {
+      for (const row of category.rows) {
+        for (const seat of row.seats) {
+          if (seat.bookedBy && seat.bookedBy.toString() === userId && !seat.bookingId) {
+            seat.bookingId = booking._id;
+          }
+        }
+      }
+    }
+
+    if (currentTiming !== show) {
+      const timingIndex = show.timings.findIndex(t => t._id.toString() === timingId);
+      show.timings[timingIndex].seatCategories = seatCategories;
+    } else {
+      show.seatCategories = seatCategories;
+    }
+    await show.save();
 
     res.status(201).json({
       success: true,
@@ -166,6 +325,7 @@ const createBooking = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Booking error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -187,6 +347,31 @@ const createPaymentOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Payment order cannot be created for this booking' });
     }
 
+    // Check if booking is expired
+    if (new Date() > booking.expiresAt) {
+      booking.bookingStatus = 'EXPIRED';
+      await booking.save();
+      
+      const show = await Show.findById(booking.showId);
+      for (const seat of booking.seats) {
+        for (const category of show.seatCategories) {
+          for (const row of category.rows) {
+            if (row.rowName === seat.rowName) {
+              const seatObj = row.seats.find(s => s.seatNumber === seat.seatNumber);
+              if (seatObj && seatObj.bookedBy && seatObj.bookedBy.toString() === booking.userId.toString()) {
+                seatObj.isBooked = false;
+                seatObj.bookedBy = null;
+                seatObj.bookingId = null;
+              }
+            }
+          }
+        }
+      }
+      await show.save();
+      
+      return res.status(400).json({ success: false, message: 'Booking expired. Please book again' });
+    }
+
     const paymentOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
     const paymentOrder = {
       orderId: paymentOrderId,
@@ -194,11 +379,13 @@ const createPaymentOrder = async (req, res) => {
       amount: booking.totalAmount,
       currency: 'INR',
       receipt: booking.bookingId,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000)
+      createdAt: new Date(),
+      expiresAt: booking.expiresAt
     };
 
     res.json({ success: true, data: paymentOrder });
   } catch (error) {
+    console.error('Create payment order error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -271,6 +458,7 @@ const confirmPayment = async (req, res) => {
 
     res.json({ success: true, message: 'Payment confirmed. Booking successful!', data: booking });
   } catch (error) {
+    console.error('Confirm payment error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -331,6 +519,7 @@ const cancelBooking = async (req, res) => {
       res.status(400).json({ success: false, message: `Cannot cancel booking with status ${booking.bookingStatus}` });
     }
   } catch (error) {
+    console.error('Cancel booking error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -396,7 +585,7 @@ const autoCancelExpiredBookings = async () => {
   }
 };
 
-// @desc    Get All Active Shows (Public)
+// @desc    Get All Active Shows (Public) - WITH ACCESSIBLE SEATS FILTER
 // @route   GET /api/public/shows
 const getAllShows = async (req, res) => {
   try {
@@ -422,17 +611,32 @@ const getAllShows = async (req, res) => {
       .populate('theaterId', 'name location city address')
       .sort({ showDate: 1, startTime: 1 });
     
+    // Get user's accessible seats
+    const user = await User.findById(req.user.id).select('accessibleSeats');
+    
+    // Filter shows where user has accessible seats
+    const showsWithAccess = shows.filter(show => {
+      if (!user?.accessibleSeats) return false;
+      
+      const theaterAccess = user.accessibleSeats.find(
+        seat => seat.theaterId?.toString() === show.theaterId?._id?.toString()
+      );
+      
+      return theaterAccess && theaterAccess.seatNumbers && theaterAccess.seatNumbers.length > 0;
+    });
+    
     res.json({
       success: true,
-      count: shows.length,
-      data: shows
+      count: showsWithAccess.length,
+      data: showsWithAccess
     });
   } catch (error) {
+    console.error('Error in getAllShows:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get Shows by Movie (Public)
+// @desc    Get Shows by Movie (Public) - WITH ACCESSIBLE SEATS FILTER
 // @route   GET /api/public/shows/movie/:movieId
 const getShowsByMovie = async (req, res) => {
   try {
@@ -444,17 +648,31 @@ const getShowsByMovie = async (req, res) => {
     .populate('theaterId', 'name location city address')
     .sort({ showDate: 1, startTime: 1 });
     
+    // Get user's accessible seats
+    const user = await User.findById(req.user.id).select('accessibleSeats');
+    
+    // Filter shows where user has accessible seats
+    const showsWithAccess = shows.filter(show => {
+      if (!user?.accessibleSeats) return false;
+      
+      const theaterAccess = user.accessibleSeats.find(
+        seat => seat.theaterId?.toString() === show.theaterId?._id?.toString()
+      );
+      
+      return theaterAccess && theaterAccess.seatNumbers && theaterAccess.seatNumbers.length > 0;
+    });
+    
     res.json({
       success: true,
-      count: shows.length,
-      data: shows
+      count: showsWithAccess.length,
+      data: showsWithAccess
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get Shows by Theater (Public)
+// @desc    Get Shows by Theater (Public) - WITH ACCESSIBLE SEATS FILTER
 // @route   GET /api/public/shows/theater/:theaterId
 const getShowsByTheater = async (req, res) => {
   try {
@@ -465,6 +683,27 @@ const getShowsByTheater = async (req, res) => {
     })
     .populate('theaterId', 'name location city address')  
     .sort({ showDate: 1, startTime: 1 });
+    
+    // Get user's accessible seats
+    const user = await User.findById(req.user.id).select('accessibleSeats');
+    
+    // Check if user has accessible seats for this theater
+    let hasAccess = false;
+    if (user?.accessibleSeats) {
+      const theaterAccess = user.accessibleSeats.find(
+        seat => seat.theaterId?.toString() === req.params.theaterId
+      );
+      hasAccess = theaterAccess && theaterAccess.seatNumbers && theaterAccess.seatNumbers.length > 0;
+    }
+    
+    // If user doesn't have access, return empty array
+    if (!hasAccess) {
+      return res.json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
     
     res.json({
       success: true,

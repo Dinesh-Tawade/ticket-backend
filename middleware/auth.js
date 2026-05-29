@@ -62,4 +62,21 @@ const authorize = (...roles) => {
   };
 };
 
-module.exports = { protect, authorize };
+// Optional auth: attaches req.user when token is valid; continues without user otherwise
+const optionalProtect = async (req, res, next) => {
+  if (!req.headers.authorization?.startsWith('Bearer')) {
+    return next();
+  }
+
+  try {
+    const token = req.headers.authorization.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = await User.findById(decoded.id).select('-password');
+  } catch (error) {
+    console.error('Optional auth error:', error.message);
+  }
+
+  next();
+};
+
+module.exports = { protect, authorize, optionalProtect };
