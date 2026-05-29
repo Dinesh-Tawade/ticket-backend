@@ -106,16 +106,11 @@ const generateSeatCategoriesFromZones = (screen) => {
 const createTheater = async (req, res) => {
   try {
     const {
-      ownerId, name, location, city, state, pincode, contactNumber,
+      name, location, city, state, pincode, contactNumber,
       screens, images, amenities, screenPosition, layout,
       hasRecliner, hasWifi, hasParking, hasCafe, hasWheelchair,
       layoutMeta, totalScreens: reqTotalScreens, totalZones: reqTotalZones, totalSeats: reqTotalSeats
     } = req.body;
-
-    const owner = await User.findOne({ _id: ownerId, role: 'THEATER_OWNER' });
-    if (!owner) {
-      return res.status(404).json({ success: false, message: 'Theater owner not found' });
-    }
 
     const processedScreens = processScreensForStorage(screens || []);
     const totalScreens = processedScreens.length;
@@ -123,7 +118,6 @@ const createTheater = async (req, res) => {
     const totalSeats = processedScreens.reduce((sum, screen) => sum + (screen.totalSeatsInScreen || 0), 0);
 
     const theater = await Theater.create({
-      ownerId,
       name,
       location,
       city,
