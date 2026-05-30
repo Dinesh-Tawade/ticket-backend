@@ -176,12 +176,12 @@ router.delete('/admin/buyer/remove-seat-access/:buyerId/:accessId', protect, aut
 
 // Theater Management (Admin)
 router.post('/admin/theater/create', protect, authorize('SUPER_ADMIN',), createTheater);
-router.get('/admin/theater/all', protect, authorize('SUPER_ADMIN'), adminGetAllTheaters);
+router.get('/admin/theater/all', protect, authorize('SUPER_ADMIN','VENDOR','THEATER_OWNER'), adminGetAllTheaters);
 router.get('/admin/theater/:id', protect, authorize('SUPER_ADMIN','THEATER_OWNER'), adminGetTheaterById);
-router.put('/admin/theater/update/:id', protect, authorize('SUPER_ADMIN','THEATER_OWNER'), adminUpdateTheater);
-router.post('/admin/theater/add-screen/:id', protect, authorize('SUPER_ADMIN','THEATER_OWNER'), addScreenToTheater);
-router.delete('/admin/theater/delete/:id', protect, authorize('SUPER_ADMIN','THEATER_OWNER'), adminDeleteTheater);
-router.delete('/admin/theater/delete-screen/:id/:screenId', protect, authorize('SUPER_ADMIN','THEATER_OWNER'), deleteScreenFromTheater);
+router.put('/admin/theater/update/:id', protect, authorize('SUPER_ADMIN','VENDOR','THEATER_OWNER'), adminUpdateTheater);
+router.post('/admin/theater/add-screen/:id', protect, authorize('SUPER_ADMIN','VENDOR','THEATER_OWNER'), addScreenToTheater);
+router.delete('/admin/theater/delete/:id', protect, authorize('SUPER_ADMIN','VENDOR','THEATER_OWNER'), adminDeleteTheater);
+router.delete('/admin/theater/delete-screen/:id/:screenId', protect, authorize('SUPER_ADMIN','VENDOR','THEATER_OWNER'), deleteScreenFromTheater);
 
 // Zone Management (Admin) - NEW ROUTES
 router.post('/admin/theater/add-zone/:id/:screenId', protect, authorize('SUPER_ADMIN'), addZoneToScreen);
