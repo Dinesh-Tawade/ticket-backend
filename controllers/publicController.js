@@ -127,9 +127,20 @@ const getShowById = async (req, res) => {
       };
     }) || [];
 
+    // Full theater on theaterId (screens + aisles for 2D seat map)
+    const theaterForClient = show.theaterId
+      ? {
+          ...show.theaterId.toObject(),
+          screens: theater?.screens || show.theaterId.screens || [],
+          layoutMeta: theater?.layoutMeta || {},
+          screenPosition: theater?.screenPosition || 'top',
+        }
+      : null;
+
     // Prepare response with complete seat layout
     const responseData = {
       ...show.toObject(),
+      theaterId: theaterForClient || show.theaterId,
       seatCategories: formattedSeatCategories,
       theaterLayout: {
         screenPosition: theater?.screenPosition || "top",
