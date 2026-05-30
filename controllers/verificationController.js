@@ -115,88 +115,81 @@ const verifyTicket = async (req, res) => {
 // @route   PUT /api/verify/ticket/use/:bookingId
 const markTicketAsUsed = async (req, res) => {
   try {
-    // Support both params and body
     let bookingId = req.params.bookingId || req.body.bookingId;
-    
-    // Agar QR code full string aa raha hai (e.g., "BK1780052858517829QRUJW|N|N1|NN1")
+
+    // QR data support
     if (bookingId && bookingId.includes('|')) {
       const parts = bookingId.split('|');
-      bookingId = parts[0]; // First part is the actual booking ID
+      bookingId = parts[0];
       console.log('Extracted Booking ID from QR:', bookingId);
     }
-    
+
     console.log('=== CHECK-IN REQUEST ===');
     console.log('Raw input:', req.params.bookingId || req.body.bookingId);
     console.log('Booking ID:', bookingId);
     console.log('Checked in by:', req.user?.id);
 
     if (!bookingId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Booking ID is required' 
+      return res.status(400).json({
+        success: false,
+        message: 'Booking ID is required'
       });
     }
 
     const booking = await Booking.findOne({ bookingId })
       .populate('theaterId', 'name address')
       .populate('showId', 'movieName showDate startTime')
-      .populate('customer', 'name email phone');
+      .populate('userId', 'name email phone');
 
     if (!booking) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Booking not found' 
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
       });
     }
 
-    // Check if booking is already checked in
+    // Already verified?
     if (booking.isCheckedIn) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Ticket already checked in' 
+      return res.status(400).json({
+        success: false,
+        message: 'Ticket already verified'
       });
     }
 
-    // Check booking status
-    if (booking.bookingStatus !== 'CONFIRMED') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Cannot check in. Booking status: ${booking.bookingStatus}` 
-      });
-    }
-
-    // Optional: Check if show date/time is valid (not expired)
+    // Show date validation
     const showDate = new Date(booking.showDate);
     const today = new Date();
+
+    showDate.setHours(0, 0, 0, 0);
     today.setHours(0, 0, 0, 0);
-    
+
     if (showDate < today) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Cannot check in. Show date has passed.' 
+      return res.status(400).json({
+        success: false,
+        message: 'Show date has expired'
       });
     }
 
-    // Mark as checked in
+    // Verify Ticket
     booking.isCheckedIn = true;
     booking.checkedInAt = new Date();
-    booking.checkedInBy = req.user?.id;
+    booking.checkedInBy = req.user?._id || req.user?.id;
     booking.checkedInSeatsCount = booking.seats?.length || 0;
-    booking.bookingStatus = 'COMPLETED'; // Optional: Update status to COMPLETED
-    
+
     await booking.save();
 
     console.log('Check-in successful for:', bookingId);
 
-    // Prepare response data for frontend display
     const responseData = {
       bookingId: booking.bookingId,
       checkedInAt: booking.checkedInAt,
-      customer: booking.customer ? {
-        name: booking.customer.name,
-        email: booking.customer.email,
-        phone: booking.customer.phone
-      } : null,
+      customer: booking.userId
+        ? {
+            name: booking.userId.name,
+            email: booking.userId.email,
+            phone: booking.userId.phone
+          }
+        : null,
       movieName: booking.movieName,
       showDate: booking.showDate,
       showTime: booking.showTime,
@@ -205,17 +198,18 @@ const markTicketAsUsed = async (req, res) => {
       theaterName: booking.theaterId?.name
     };
 
-    res.json({
+    return res.status(200).json({
       success: true,
-      message: 'Check-in successful. Entry granted!',
+      message: 'Ticket verified successfully. Entry granted!',
       data: responseData
     });
 
   } catch (error) {
     console.error('Check-in error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Internal server error' 
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error'
     });
   }
 };
