@@ -480,8 +480,7 @@ const createShow = async (req, res) => {
   try {
     const {
       theaterId, screenId, screenNumber, movie,
-      timings,  // Array of { showDate, startTime, endTime }
-      isPaid, basePrice
+      timings, isPaid, basePrice
     } = req.body;
 
     const theater = await Theater.findById(theaterId);
@@ -494,7 +493,6 @@ const createShow = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Screen not found' });
     }
 
-    // Check if timings array provided
     if (!timings || timings.length === 0) {
       return res.status(400).json({ 
         success: false, 
@@ -503,6 +501,7 @@ const createShow = async (req, res) => {
     }
 
     const processedTimings = [];
+    const currentDate = new Date();
 
     for (const timing of timings) {
       const { showDate, startTime, endTime } = timing;
@@ -514,7 +513,16 @@ const createShow = async (req, res) => {
         });
       }
 
-      // Generate seat categories from screen zones
+      // Check if timing is expired - AGAR PAST HAI TO SKIP KARO
+      const showDateTime = new Date(showDate);
+      const [hours, minutes] = startTime.split(':');
+      showDateTime.setHours(parseInt(hours), parseInt(minutes));
+      
+      if (showDateTime < currentDate) {
+        console.log(`Skipping expired timing: ${showDate} ${startTime}`);
+        continue; // Skip - yeh timing create mat karo
+      }
+
       const seatCategories = generateSeatCategoriesFromZones(screen);
       
       if (seatCategories.length === 0) {
@@ -538,6 +546,14 @@ const createShow = async (req, res) => {
       });
     }
 
+    // Agar saari timings expired hain to show hi mat banao
+    if (processedTimings.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'All provided timings are expired. Cannot create show.'
+      });
+    }
+
     const show = await Show.create({
       theaterId,
       screenId,
@@ -547,7 +563,6 @@ const createShow = async (req, res) => {
       isPaid: isPaid || false,
       basePrice: basePrice || 0,
       createdBy: req.user.id,
-      // Legacy fields (for backward compatibility)
       showDate: processedTimings[0].showDate,
       startTime: processedTimings[0].startTime,
       endTime: processedTimings[0].endTime,
@@ -560,7 +575,7 @@ const createShow = async (req, res) => {
 
     res.status(201).json({ 
       success: true, 
-      message: `Show created with ${processedTimings.length} timing(s)`, 
+      message: `Show created with ${processedTimings.length} upcoming timing(s)`, 
       data: show 
     });
   } catch (error) {
@@ -573,46 +588,87 @@ const createShow = async (req, res) => {
 // @route   GET /api/admin/show/all
 const getAllShows = async (req, res) => {
   try {
-    const { theaterId, status, fromDate, toDate } = req.query;
+    const { theaterId, movieId, city } = req.query;
+    
+    // IMPORTANT: Use UTC to avoid timezone issues
+    const now = new Date();
+    const currentUTC = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      now.getUTCHours(),
+      now.getUTCMinutes(),
+      0
+    ));
+    
+    console.log('Current UTC Time:', currentUTC);
+    
     let filter = {};
-    
     if (theaterId) filter.theaterId = theaterId;
+    if (movieId) filter.movie = movieId;
     
-    // Status filter - check both legacy and timings
-    if (status) {
-      filter.$or = [
-        { status: status },
-        { 'timings.status': status }
-      ];
-    }
-    
-    // Date filter - check both legacy and timings
-    if (fromDate && toDate) {
-      filter.$and = [
-        {
-          $or: [
-            { showDate: { $gte: new Date(fromDate), $lte: new Date(toDate) } },
-            { 'timings.showDate': { $gte: new Date(fromDate), $lte: new Date(toDate) } }
-          ]
-        }
-      ];
-    }
-
-    const shows = await Show.find(filter)
+    let shows = await Show.find(filter)
       .populate('theaterId', 'name location city')
       .sort({ createdAt: -1 });
-
-    res.json({ success: true, count: shows.length, data: shows });
+    
+    const upcomingShows = [];
+    
+    for (const show of shows) {
+      const showObj = show.toObject();
+      
+      if (!showObj.timings || showObj.timings.length === 0) {
+        console.log(`Show ${show._id}: No timings, skipping`);
+        continue;
+      }
+      
+      const upcomingTimings = [];
+      
+      for (const timing of showObj.timings) {
+        // Create UTC date from showDate and startTime
+        const showDateUTC = new Date(timing.showDate);
+        const [hours, minutes] = timing.startTime.split(':').map(Number);
+        showDateUTC.setUTCHours(hours, minutes, 0, 0);
+        
+        console.log(`Show ${show._id}: Timing date=${timing.showDate}, time=${timing.startTime} -> UTC=${showDateUTC}`);
+        console.log(`Compare: ${showDateUTC} > ${currentUTC} = ${showDateUTC > currentUTC}`);
+        
+        if (showDateUTC > currentUTC) {
+          upcomingTimings.push(timing);
+        }
+      }
+      
+      if (upcomingTimings.length > 0) {
+        showObj.timings = upcomingTimings;
+        upcomingShows.push(showObj);
+        console.log(`Show ${show._id}: Included with ${upcomingTimings.length} upcoming timings`);
+      } else {
+        console.log(`Show ${show._id}: SKIPPED - no upcoming timings`);
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      count: upcomingShows.length,
+      debug: {
+        currentUTC,
+        totalShowsFound: shows.length,
+        upcomingShowsCount: upcomingShows.length
+      },
+      data: upcomingShows 
+    });
+    
   } catch (error) {
     console.error('Get all shows error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get Detailed Show By ID - Updated to include timings
+// @desc    Get Detailed Show By ID - Expired show pe 404 error
 // @route   GET /api/admin/show/:id
 const getDetailedShowById = async (req, res) => {
   try {
+    const currentDate = new Date();
+    
     const show = await Show.findById(req.params.id)
       .populate('theaterId', 'name location city state screens totalSeats screenPosition')
       .populate('createdBy', 'name email');
@@ -624,28 +680,45 @@ const getDetailedShowById = async (req, res) => {
     const theater = await Theater.findById(show.theaterId);
     const screen = theater?.screens?.find(s => s._id.toString() === show.screenId.toString());
 
-    // Format response to include timings info
     const responseData = show.toObject();
-    if (show.timings && show.timings.length > 0) {
-      responseData.hasMultipleTimings = true;
-      responseData.totalTimings = show.timings.length;
-      responseData.activeTimings = show.timings.filter(t => t.status === 'BOOKING_OPEN').length;
-    } else {
-      responseData.hasMultipleTimings = false;
+    
+    // ✅ Filter only upcoming timings
+    let upcomingTimings = [];
+    
+    if (responseData.timings && responseData.timings.length > 0) {
+      upcomingTimings = responseData.timings.filter(timing => {
+        const showDateTime = new Date(timing.showDate);
+        const [hours, minutes] = timing.startTime.split(':');
+        showDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        return showDateTime > currentDate;
+      });
+      
+      responseData.timings = upcomingTimings;
     }
-
+    
+    // ✅ Agar koi upcoming timing nahi hai toh 404 error
+    if (upcomingTimings.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'This show has expired and has no upcoming timings'
+      });
+    }
+    
     res.json({ 
       success: true, 
       data: {
         ...responseData,
         theaterLayout: {
-          screenPosition: theater?.screenPosition,
-          screenName: screen?.name,
+          theaterName: theater?.name,
+          location: theater?.location,
+          city: theater?.city,
           screenPosition: screen?.position,
+          screenName: screen?.name,
           zones: screen?.zones
         }
       }
     });
+    
   } catch (error) {
     console.error('Get detailed show error:', error);
     res.status(500).json({ success: false, message: error.message });

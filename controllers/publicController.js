@@ -2,46 +2,158 @@ const Show = require('../models/Show');
 const Theater = require('../models/Theater');
 const User = require('../models/User');
 
-// @desc    Get all shows (Public)
+// Helper function to get current UTC time
+const getCurrentUTC = () => {
+  const now = new Date();
+  return new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    now.getUTCHours(),
+    now.getUTCMinutes(),
+    0
+  ));
+};
+
+// Helper function to filter upcoming timings from a show
+const filterUpcomingTimings = (show) => {
+  const currentUTC = getCurrentUTC();
+  const showObj = show.toObject();
+  
+  if (!showObj.timings || showObj.timings.length === 0) {
+    return null;
+  }
+  
+  // Filter only upcoming timings
+  const upcomingTimings = showObj.timings.filter(timing => {
+    const showDateUTC = new Date(timing.showDate);
+    const [hours, minutes] = timing.startTime.split(':').map(Number);
+    showDateUTC.setUTCHours(hours, minutes, 0, 0);
+    return showDateUTC > currentUTC;
+  });
+  
+  if (upcomingTimings.length === 0) {
+    return null;
+  }
+  
+  // Update show with only upcoming timings
+  showObj.timings = upcomingTimings;
+  showObj.showDate = upcomingTimings[0].showDate;
+  showObj.startTime = upcomingTimings[0].startTime;
+  showObj.endTime = upcomingTimings[0].endTime;
+  showObj.seatCategories = upcomingTimings[0].seatCategories;
+  showObj.status = upcomingTimings[0].status;
+  showObj.totalSeats = upcomingTimings[0].totalSeats;
+  showObj.availableSeats = upcomingTimings[0].availableSeats;
+  showObj.bookedSeatsCount = upcomingTimings[0].bookedSeatsCount;
+  
+  return showObj;
+};
+
+// @desc    Get all shows (Public) - Only upcoming shows
 // @route   GET /api/public/shows
 const getAllShows = async (req, res) => {
   try {
     const { city, movieName, date, genre, isTrending, language } = req.query;
-    let filter = { status: 'BOOKING_OPEN' };
+    const currentUTC = getCurrentUTC();
+    
+    // Build filter - only show shows with upcoming timings
+    let filter = {};
+    
+    // Only show shows that have at least one upcoming timing
+    filter['timings'] = { $exists: true, $not: { $size: 0 } };
     
     if (city) {
-      const theaters = await Theater.find({ city });
+      const theaters = await Theater.find({ city, status: 'ACTIVE' });
       filter.theaterId = { $in: theaters.map(t => t._id) };
     }
     if (movieName) filter['movie.name'] = { $regex: movieName, $options: 'i' };
-    if (date) filter.showDate = { $gte: new Date(date), $lt: new Date(new Date(date).setDate(new Date(date).getDate() + 1)) };
     if (genre) filter['movie.genre'] = genre;
     if (isTrending === 'true') filter['movie.isTrending'] = true;
     if (language) filter['movie.language'] = language;
-
-    const shows = await Show.find(filter)
+    
+    // Date filter for upcoming shows
+    if (date) {
+      const targetDate = new Date(date);
+      targetDate.setUTCHours(0, 0, 0, 0);
+      const nextDate = new Date(targetDate);
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      
+      filter['timings.showDate'] = { $gte: targetDate, $lt: nextDate };
+    } else {
+      // If no date specified, only show future shows
+      filter['timings.showDate'] = { $gte: new Date() };
+    }
+    
+    let shows = await Show.find(filter)
       .populate('theaterId', 'name location city')
-      .sort({ showDate: 1, startTime: 1 });
-
-    res.json({ success: true, count: shows.length, data: shows });
+      .sort({ createdAt: -1 });
+    
+    // Filter each show's timings to only upcoming ones
+    const upcomingShows = [];
+    for (const show of shows) {
+      const filteredShow = filterUpcomingTimings(show);
+      if (filteredShow) {
+        upcomingShows.push(filteredShow);
+      }
+    }
+    
+    // Sort by nearest show date-time
+    upcomingShows.sort((a, b) => {
+      const dateA = new Date(a.timings[0].showDate);
+      const timeA = a.timings[0].startTime.split(':');
+      dateA.setUTCHours(parseInt(timeA[0]), parseInt(timeA[1]));
+      
+      const dateB = new Date(b.timings[0].showDate);
+      const timeB = b.timings[0].startTime.split(':');
+      dateB.setUTCHours(parseInt(timeB[0]), parseInt(timeB[1]));
+      
+      return dateA - dateB;
+    });
+    
+    res.json({ 
+      success: true, 
+      count: upcomingShows.length, 
+      data: upcomingShows,
+      serverTime: currentUTC
+    });
   } catch (error) {
+    console.error('Get all shows error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get trending shows
+// @desc    Get trending shows - Only upcoming
 // @route   GET /api/public/shows/trending
 const getTrendingShows = async (req, res) => {
   try {
+    const currentUTC = getCurrentUTC();
+    
     const shows = await Show.find({ 
-      'movie.isTrending': true, 
-      status: 'BOOKING_OPEN' 
+      'movie.isTrending': true,
+      'timings': { $exists: true, $not: { $size: 0 } },
+      'timings.showDate': { $gte: new Date() }
     })
     .populate('theaterId', 'name location city')
-    .limit(10);
-
-    res.json({ success: true, count: shows.length, data: shows });
+    .limit(20);
+    
+    // Filter upcoming timings for each show
+    const upcomingShows = [];
+    for (const show of shows) {
+      const filteredShow = filterUpcomingTimings(show);
+      if (filteredShow) {
+        upcomingShows.push(filteredShow);
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      count: upcomingShows.length, 
+      data: upcomingShows,
+      serverTime: currentUTC
+    });
   } catch (error) {
+    console.error('Get trending shows error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -75,15 +187,26 @@ const getBuyerAccessibleSeats = async (userId, theaterId, screenId) => {
   }
 };
 
-// @desc    Get show by ID (with seat layout)
+// @desc    Get show by ID (with seat layout) - Only if upcoming
 // @route   GET /api/public/shows/:id
 const getShowById = async (req, res) => {
   try {
+    const currentUTC = getCurrentUTC();
+    
     const show = await Show.findById(req.params.id)
       .populate('theaterId', 'name location city contactNumber screens');
     
     if (!show) {
       return res.status(404).json({ success: false, message: 'Show not found' });
+    }
+    
+    // Check if show has any upcoming timing
+    const filteredShow = filterUpcomingTimings(show);
+    if (!filteredShow) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'This show has expired and has no upcoming timings'
+      });
     }
 
     // Get theater data for zone colors
@@ -96,7 +219,7 @@ const getShowById = async (req, res) => {
     const buyerAccess = req.user ? await getBuyerAccessibleSeats(req.user.id, show.theaterId._id, show.screenId) : null;
     
     // Prepare seat categories with proper formatting and access control
-    const formattedSeatCategories = show.seatCategories?.map(category => {
+    const formattedSeatCategories = filteredShow.seatCategories?.map(category => {
       // Check if this zone is accessible to buyer
       const isZoneAccessible = buyerAccess ? (buyerAccess.zoneName === category.category) : true;
       
@@ -105,7 +228,7 @@ const getShowById = async (req, res) => {
         pricePerSeat: category.pricePerSeat,
         totalSeats: category.totalSeats,
         availableSeats: category.availableSeats,
-        isAccessible: isZoneAccessible,  // ✅ Zone-level access flag
+        isAccessible: isZoneAccessible,
         rows: category.rows?.map(row => ({
           rowName: row.rowName,
           seats: row.seats?.map(seat => {
@@ -119,8 +242,8 @@ const getShowById = async (req, res) => {
               seatLabel: seat.seatLabel || seat.seatNumber,
               isBooked: seat.isBooked,
               price: category.pricePerSeat,
-              isAccessible: isSeatAccessible,      // ✅ Seat-level access flag
-              canBook: !seat.isBooked && isSeatAccessible  // ✅ Can book if not booked AND accessible
+              isAccessible: isSeatAccessible,
+              canBook: !seat.isBooked && isSeatAccessible
             };
           })
         }))
@@ -139,7 +262,7 @@ const getShowById = async (req, res) => {
 
     // Prepare response with complete seat layout
     const responseData = {
-      ...show.toObject(),
+      ...filteredShow,
       theaterId: theaterForClient || show.theaterId,
       seatCategories: formattedSeatCategories,
       theaterLayout: {
@@ -147,8 +270,8 @@ const getShowById = async (req, res) => {
         screenName: screen?.name,
         screenId: screen?._id,
         zones: screen?.zones || [],
-        totalSeats: show.totalSeats,
-        availableSeats: show.availableSeats
+        totalSeats: filteredShow.totalSeats,
+        availableSeats: filteredShow.availableSeats
       },
       buyerAccessInfo: buyerAccess ? {
         hasAccess: true,
@@ -157,7 +280,10 @@ const getShowById = async (req, res) => {
       } : {
         hasAccess: false,
         message: req.user ? "No seats assigned to you for this theater" : "Login to see your assigned seats"
-      }
+      },
+      hasMultipleTimings: filteredShow.timings?.length > 1,
+      totalTimings: filteredShow.timings?.length || 1,
+      currentServerTime: currentUTC
     };
 
     res.json({ success: true, data: responseData });
@@ -167,14 +293,25 @@ const getShowById = async (req, res) => {
   }
 };
 
-// @desc    Get available seats for a show
+// @desc    Get available seats for a show - Only if upcoming
 // @route   GET /api/public/shows/:id/seats
 const getAvailableSeats = async (req, res) => {
   try {
+    const currentUTC = getCurrentUTC();
+    
     const show = await Show.findById(req.params.id);
     
     if (!show) {
       return res.status(404).json({ success: false, message: 'Show not found' });
+    }
+    
+    // Check if show has any upcoming timing
+    const filteredShow = filterUpcomingTimings(show);
+    if (!filteredShow) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'This show has expired and has no upcoming timings'
+      });
     }
 
     // Get theater data for zone colors
@@ -185,7 +322,7 @@ const getAvailableSeats = async (req, res) => {
     const buyerAccess = req.user ? await getBuyerAccessibleSeats(req.user.id, show.theaterId, show.screenId) : null;
     
     // Prepare seat map with zone colors and access control
-    const seatCategories = show.seatCategories?.map(category => {
+    const seatCategories = filteredShow.seatCategories?.map(category => {
       // Check if this zone is accessible to buyer
       const isZoneAccessible = buyerAccess ? (buyerAccess.zoneName === category.category) : true;
       
@@ -214,8 +351,8 @@ const getAvailableSeats = async (req, res) => {
               isBooked: seat.isBooked,
               price: category.pricePerSeat,
               seatLabel: seat.seatLabel || seat.seatNumber,
-              isAccessible: isSeatAccessible,      // ✅ Frontend will show as disabled if false
-              canBook: !seat.isBooked && isSeatAccessible  // ✅ Booking possible only if true
+              isAccessible: isSeatAccessible,
+              canBook: !seat.isBooked && isSeatAccessible
             };
           })
         }))
@@ -226,10 +363,17 @@ const getAvailableSeats = async (req, res) => {
       success: true, 
       data: { 
         seatCategories,
-        totalSeats: show.totalSeats,
-        availableSeats: show.availableSeats,
+        totalSeats: filteredShow.totalSeats,
+        availableSeats: filteredShow.availableSeats,
         screenPosition: theater?.screenPosition || "top",
         zones: screen?.zones || [],
+        timingInfo: {
+          showDate: filteredShow.showDate,
+          startTime: filteredShow.startTime,
+          endTime: filteredShow.endTime,
+          hasMultipleTimings: filteredShow.timings?.length > 1,
+          totalTimings: filteredShow.timings?.length || 1
+        },
         buyerAccess: buyerAccess ? {
           hasAccess: true,
           zoneName: buyerAccess.zoneName,
@@ -237,7 +381,8 @@ const getAvailableSeats = async (req, res) => {
         } : {
           hasAccess: false,
           message: req.user ? "No seats assigned" : "Login required"
-        }
+        },
+        serverTime: currentUTC
       } 
     });
   } catch (error) {
@@ -257,6 +402,69 @@ const getAllTheaters = async (req, res) => {
     const theaters = await Theater.find(filter).populate('ownerId', 'name email');
     res.json({ success: true, count: theaters.length, data: theaters });
   } catch (error) {
+    console.error('Get all theaters error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get upcoming timings for a specific show
+// @route   GET /api/public/shows/:id/timings
+const getShowTimings = async (req, res) => {
+  try {
+    const currentUTC = getCurrentUTC();
+    
+    const show = await Show.findById(req.params.id);
+    
+    if (!show) {
+      return res.status(404).json({ success: false, message: 'Show not found' });
+    }
+    
+    if (!show.timings || show.timings.length === 0) {
+      return res.status(404).json({ success: false, message: 'No timings found for this show' });
+    }
+    
+    // Filter upcoming timings
+    const upcomingTimings = show.timings.filter(timing => {
+      const showDateUTC = new Date(timing.showDate);
+      const [hours, minutes] = timing.startTime.split(':').map(Number);
+      showDateUTC.setUTCHours(hours, minutes, 0, 0);
+      return showDateUTC > currentUTC;
+    });
+    
+    if (upcomingTimings.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No upcoming timings for this show' 
+      });
+    }
+    
+    // Format timings for response
+    const formattedTimings = upcomingTimings.map(timing => ({
+      timingId: timing._id,
+      showDate: timing.showDate,
+      startTime: timing.startTime,
+      endTime: timing.endTime,
+      status: timing.status,
+      availableSeats: timing.availableSeats,
+      totalSeats: timing.totalSeats,
+      bookedSeatsCount: timing.bookedSeatsCount,
+      formattedDateTime: `${new Date(timing.showDate).toLocaleDateString()} at ${timing.startTime}`
+    }));
+    
+    res.json({
+      success: true,
+      data: {
+        showId: show._id,
+        movieName: show.movie?.name,
+        theaterId: show.theaterId,
+        screenNumber: show.screenNumber,
+        timings: formattedTimings,
+        totalUpcomingTimings: formattedTimings.length
+      },
+      serverTime: currentUTC
+    });
+  } catch (error) {
+    console.error('Get show timings error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -266,5 +474,6 @@ module.exports = {
   getTrendingShows,
   getShowById,
   getAllTheaters,
-  getAvailableSeats
+  getAvailableSeats,
+  getShowTimings  // New endpoint
 };
