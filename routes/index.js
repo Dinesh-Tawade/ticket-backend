@@ -126,6 +126,43 @@ const uploadProductImage = upload.single('image');
 
 const router = express.Router();
 
+
+// Booking Settings Management (Super Admin only)
+const {
+  getBookingSettings,
+  updateGlobalSettings,
+  addShowOverride,
+  removeShowOverride,
+  checkShowBookingAvailability,
+  getAllShowsBookingStatus
+} = require('../controllers/bookingSettingsController');
+
+// Booking Settings Routes
+router.route('/admin/booking-settings')
+  .get(protect, authorize('SUPER_ADMIN'), getBookingSettings)
+  .put(protect, authorize('SUPER_ADMIN'), updateGlobalSettings);
+
+// Show Overrides
+router.route('/admin/booking-settings/overrides')
+  .post(protect, authorize('SUPER_ADMIN'), addShowOverride);
+
+router.route('/admin/booking-settings/overrides/:showId')
+  .delete(protect, authorize('SUPER_ADMIN'), removeShowOverride);
+
+// Check booking availability for specific show
+router.get('/admin/booking-settings/check/:showId', 
+  protect, 
+  authorize('SUPER_ADMIN'), 
+  checkShowBookingAvailability
+);
+
+// Get all shows booking status
+router.get('/admin/booking-settings/all-shows-status', 
+  protect, 
+  authorize('SUPER_ADMIN'), 
+  getAllShowsBookingStatus
+);
+
 // ==================== TEST ROUTE ====================
 router.get('/', (req, res) => {
   res.json({ success: true, message: 'Booking App API', version: '2.0.0' });
