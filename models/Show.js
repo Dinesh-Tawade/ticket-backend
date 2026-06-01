@@ -529,5 +529,96 @@ showSchema.statics.findByDate = function(date) {
   });
 };
 
+showSchema.methods.isBookingAvailable = async function(timingId = null) {
+  try {
+    // Import BookingSettings model (will be created separately)
+    const BookingSettings = mongoose.model('BookingSettings');
+    
+    // Determine which timing to check
+    let targetTiming = null;
+    let targetShowDate = null;
+    let targetStartTime = null;
+    
+    if (timingId && this.timings && this.timings.length > 0) {
+      // Check specific timing
+      targetTiming = this.timings.find(t => t._id.toString() === timingId);
+      if (!targetTiming) {
+        return { available: false, reason: 'Timing not found.' };
+      }
+      targetShowDate = targetTiming.showDate;
+      targetStartTime = targetTiming.startTime;
+      
+      // Check timing status
+      if (targetTiming.status !== 'BOOKING_OPEN') {
+        return { available: false, reason: `Booking is ${targetTiming.status.toLowerCase().replace('_', ' ')} for this timing.` };
+      }
+      
+      // Check if timing has available seats
+      if (targetTiming.availableSeats <= 0) {
+        return { available: false, reason: 'No seats available for this timing.' };
+      }
+    } else {
+      // Legacy mode - check main show
+      if (this.status !== 'BOOKING_OPEN') {
+        return { available: false, reason: `Booking is ${this.status.toLowerCase().replace('_', ' ')} for this show.` };
+      }
+      
+      if (this.availableSeats <= 0) {
+        return { available: false, reason: 'No seats available.' };
+      }
+      
+      targetShowDate = this.showDate;
+      targetStartTime = this.startTime;
+    }
+    
+    // Check if show date has passed
+    let showDateTime;
+    if (targetShowDate && targetStartTime) {
+      showDateTime = new Date(targetShowDate);
+      if (targetStartTime) {
+        const [hours, minutes] = targetStartTime.split(':');
+        showDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+      }
+      
+      if (showDateTime < new Date()) {
+        return { available: false, reason: 'This show has already started.' };
+      }
+    }
+    
+    // Get global booking settings
+    let settings = await BookingSettings.findOne();
+    
+    if (!settings) {
+      // Create default settings if none exist
+      settings = await BookingSettings.create({});
+    }
+    
+    // Check booking availability from settings
+    const bookingStatus = await settings.isBookingEnabledForShow(
+      this._id, 
+      targetShowDate || this.showDate,
+      timingId
+    );
+    
+    return {
+      available: bookingStatus.enabled,
+      reason: bookingStatus.reason,
+      settings: {
+        maxTicketsPerBooking: settings.maxTicketsPerBooking,
+        isMaintenanceMode: settings.isMaintenanceMode
+      }
+    };
+  } catch (error) {
+    console.error('Error checking booking availability:', error);
+    // Default to allowing booking if settings check fails (fail open)
+    return { 
+      available: true, 
+      reason: null,
+      settings: { maxTicketsPerBooking: 10, isMaintenanceMode: false }
+    };
+  }
+};
+
+
 // ==================== EXPORT ====================
 module.exports = mongoose.model('Show', showSchema);
