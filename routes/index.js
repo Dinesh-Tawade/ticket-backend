@@ -120,6 +120,14 @@ const {
   getShowTickets
 } = require('../controllers/verificationController');
 
+// Booking Settings Controllers
+const {
+  getBookingSettings,
+  updateBookingSettings,
+  getPublicBookingSettings,
+  getPublicShowBookingStatus
+} = require('../controllers/bookingSettingsController');
+
 // Define upload handlers for vendor routes
 const uploadStoreLogo = upload.single('storeLogo');
 const uploadProductImage = upload.single('image');
@@ -127,41 +135,6 @@ const uploadProductImage = upload.single('image');
 const router = express.Router();
 
 
-// Booking Settings Management (Super Admin only)
-const {
-  getBookingSettings,
-  updateGlobalSettings,
-  addShowOverride,
-  removeShowOverride,
-  checkShowBookingAvailability,
-  getAllShowsBookingStatus
-} = require('../controllers/bookingSettingsController');
-
-// Booking Settings Routes
-router.route('/admin/booking-settings')
-  .get(protect, authorize('SUPER_ADMIN'), getBookingSettings)
-  .put(protect, authorize('SUPER_ADMIN'), updateGlobalSettings);
-
-// Show Overrides
-router.route('/admin/booking-settings/overrides')
-  .post(protect, authorize('SUPER_ADMIN'), addShowOverride);
-
-router.route('/admin/booking-settings/overrides/:showId')
-  .delete(protect, authorize('SUPER_ADMIN'), removeShowOverride);
-
-// Check booking availability for specific show
-router.get('/admin/booking-settings/check/:showId', 
-  protect, 
-  authorize('SUPER_ADMIN'), 
-  checkShowBookingAvailability
-);
-
-// Get all shows booking status
-router.get('/admin/booking-settings/all-shows-status', 
-  protect, 
-  authorize('SUPER_ADMIN'), 
-  getAllShowsBookingStatus
-);
 
 // ==================== TEST ROUTE ====================
 router.get('/', (req, res) => {
@@ -177,6 +150,8 @@ router.post('/users/login', loginBuyer);
 // Public Show Routes (No Auth)
 router.get('/public/shows', publicGetAllShows);
 router.get('/public/shows/trending', getTrendingShows);
+router.get('/public/booking-settings', getPublicBookingSettings);
+router.get('/public/shows/:id/booking-status', getPublicShowBookingStatus);
 router.get('/public/shows/:id', publicGetShowById);
 router.get('/public/theaters', publicGetAllTheaters);
 router.get('/public/shows/:id/seats', optionalProtect, getAvailableSeats);
@@ -236,6 +211,8 @@ router.delete('/admin/show/delete/:id', protect, authorize('SUPER_ADMIN'), admin
 
 // Booking Management (Admin)
 router.get('/admin/booking/all', protect, authorize('SUPER_ADMIN'), getAllBookings);
+router.get('/admin/booking-settings', protect, authorize('SUPER_ADMIN'), getBookingSettings);
+router.put('/admin/booking-settings', protect, authorize('SUPER_ADMIN'), updateBookingSettings);
 
 // ==================== THEATER OWNER ROUTES ====================
 // Dashboard

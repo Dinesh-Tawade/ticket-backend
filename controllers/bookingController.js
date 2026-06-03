@@ -1,6 +1,7 @@
 const Show = require('../models/Show');
 const Booking = require('../models/Booking');
 const User = require('../models/User');
+const BookingSettings = require('../models/BookingSettings');
 
 /** Merge all active seat assignments for a theater (multiple zones supported). */
 const collectAccessibleSeatNumbers = (accessibleSeats, theaterId) => {
@@ -149,13 +150,25 @@ const createBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No seats selected' });
     }
 
-    if (seats.length > 40) {
-      return res.status(400).json({ success: false, message: 'Maximum 40 seats per booking' });
-    }
-
     const show = await Show.findById(showId);
     if (!show) {
       return res.status(404).json({ success: false, message: 'Show not found' });
+    }
+
+    const bookingAvailability = await show.isBookingAvailable(timingId || null);
+    if (!bookingAvailability.available) {
+      return res.status(403).json({
+        success: false,
+        message: bookingAvailability.reason || 'Booking is currently disabled.',
+      });
+    }
+
+    const settings = await BookingSettings.getSingleton();
+    if (seats.length > settings.maxTicketsPerBooking) {
+      return res.status(400).json({
+        success: false,
+        message: `Maximum ${settings.maxTicketsPerBooking} seats per booking`,
+      });
     }
 
     // Get current timing if multiple timings exist
