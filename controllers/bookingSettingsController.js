@@ -1,213 +1,94 @@
-import BookingSettings from '../models/BookingSettings.js';
-import Show from '../models/Show.js';
+const BookingSettings = require('../models/BookingSettings');
+const Show = require('../models/Show');
 
-// Get current booking settings
-export const getBookingSettings = async (req, res) => {
+const formatSettings = (settings) => ({
+  _id: settings._id,
+  isBookingEnabled: settings.isBookingEnabled,
+  disabledReason: settings.disabledReason,
+  maxTicketsPerBooking: settings.maxTicketsPerBooking,
+  isMaintenanceMode: settings.isMaintenanceMode,
+  maintenanceMessage: settings.maintenanceMessage,
+  showOverrides: settings.showOverrides || [],
+  updatedAt: settings.updatedAt,
+});
+
+const getBookingSettings = async (req, res) => {
   try {
-    let settings = await BookingSettings.findOne().populate('showOverrides.showId', 'name showDate');
-    
-    if (!settings) {
-      settings = await BookingSettings.create({});
-    }
-    
-    res.status(200).json({
-      success: true,
-      data: settings
-    });
+    const settings = await BookingSettings.getSingleton();
+    res.json({ success: true, data: formatSettings(settings) });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Update global settings
-export const updateGlobalSettings = async (req, res) => {
+const updateBookingSettings = async (req, res) => {
   try {
+    const settings = await BookingSettings.getSingleton();
     const {
       isBookingEnabled,
-      timeRestrictions,
-      advanceBookingLimit,
-      minimumNoticeHours,
+      disabledReason,
       maxTicketsPerBooking,
       isMaintenanceMode,
-      maintenanceMessage
+      maintenanceMessage,
     } = req.body;
-    
-    let settings = await BookingSettings.findOne();
-    
-    if (!settings) {
-      settings = new BookingSettings();
+
+    if (typeof isBookingEnabled === 'boolean') settings.isBookingEnabled = isBookingEnabled;
+    if (typeof disabledReason === 'string') settings.disabledReason = disabledReason.trim() || settings.disabledReason;
+    if (Number.isFinite(Number(maxTicketsPerBooking)) && Number(maxTicketsPerBooking) > 0) {
+      settings.maxTicketsPerBooking = Number(maxTicketsPerBooking);
     }
-    
-    // Update fields
-    if (isBookingEnabled !== undefined) settings.isBookingEnabled = isBookingEnabled;
-    if (timeRestrictions) settings.timeRestrictions = timeRestrictions;
-    if (advanceBookingLimit !== undefined) settings.advanceBookingLimit = advanceBookingLimit;
-    if (minimumNoticeHours !== undefined) settings.minimumNoticeHours = minimumNoticeHours;
-    if (maxTicketsPerBooking !== undefined) settings.maxTicketsPerBooking = maxTicketsPerBooking;
-    if (isMaintenanceMode !== undefined) settings.isMaintenanceMode = isMaintenanceMode;
-    if (maintenanceMessage !== undefined) settings.maintenanceMessage = maintenanceMessage;
-    
-    settings.updatedBy = req.user.id;
-    settings.updatedAt = new Date();
-    
+    if (typeof isMaintenanceMode === 'boolean') settings.isMaintenanceMode = isMaintenanceMode;
+    if (typeof maintenanceMessage === 'string') settings.maintenanceMessage = maintenanceMessage.trim() || settings.maintenanceMessage;
+    settings.updatedBy = req.user?.id || null;
+
     await settings.save();
-    
-    res.status(200).json({
-      success: true,
-      data: settings,
-      message: 'Settings updated successfully'
-    });
+    res.json({ success: true, message: 'Booking settings updated successfully', data: formatSettings(settings) });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Add show-specific override
-export const addShowOverride = async (req, res) => {
+const getPublicBookingSettings = async (req, res) => {
   try {
-    const { showId, isBookingEnabled, reason, expiresAt } = req.body;
-    
-    // Verify show exists
-    const show = await Show.findById(showId);
+    const settings = await BookingSettings.getSingleton();
+    res.json({
+      success: true,
+      data: {
+        isBookingEnabled: settings.isBookingEnabled && !settings.isMaintenanceMode,
+        disabledReason: settings.isMaintenanceMode
+          ? settings.maintenanceMessage
+          : settings.disabledReason,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getPublicShowBookingStatus = async (req, res) => {
+  try {
+    const show = await Show.findById(req.params.id);
     if (!show) {
-      return res.status(404).json({
-        success: false,
-        message: 'Show not found'
-      });
+      return res.status(404).json({ success: false, message: 'Show not found' });
     }
-    
-    let settings = await BookingSettings.findOne();
-    if (!settings) {
-      settings = new BookingSettings();
-    }
-    
-    // Remove existing override for this show if any
-    settings.showOverrides = settings.showOverrides.filter(
-      o => o.showId.toString() !== showId
-    );
-    
-    // Add new override
-    settings.showOverrides.push({
-      showId,
-      isBookingEnabled,
-      reason,
-      expiresAt: expiresAt || null
-    });
-    
-    settings.updatedBy = req.user.id;
-    settings.updatedAt = new Date();
-    
-    await settings.save();
-    
-    res.status(200).json({
+
+    const bookingStatus = await show.isBookingAvailable(req.query.timingId || null);
+    res.json({
       success: true,
-      data: settings,
-      message: 'Show override added successfully'
+      data: {
+        isBookingEnabled: bookingStatus.available,
+        disabledReason: bookingStatus.reason,
+        settings: bookingStatus.settings,
+      },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Remove show override
-export const removeShowOverride = async (req, res) => {
-  try {
-    const { showId } = req.params;
-    
-    let settings = await BookingSettings.findOne();
-    if (!settings) {
-      return res.status(404).json({
-        success: false,
-        message: 'Settings not found'
-      });
-    }
-    
-    settings.showOverrides = settings.showOverrides.filter(
-      o => o.showId.toString() !== showId
-    );
-    
-    settings.updatedBy = req.user.id;
-    settings.updatedAt = new Date();
-    
-    await settings.save();
-    
-    res.status(200).json({
-      success: true,
-      data: settings,
-      message: 'Show override removed successfully'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-// Check booking availability for a specific show
-export const checkShowBookingAvailability = async (req, res) => {
-  try {
-    const { showId } = req.params;
-    
-    const show = await Show.findById(showId);
-    if (!show) {
-      return res.status(404).json({
-        success: false,
-        message: 'Show not found'
-      });
-    }
-    
-    const bookingStatus = await show.isBookingAvailable();
-    
-    res.status(200).json({
-      success: true,
-      data: bookingStatus
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-// Get all shows with booking status
-export const getAllShowsBookingStatus = async (req, res) => {
-  try {
-    const shows = await Show.find({ status: 'BOOKING_OPEN' });
-    
-    const showsWithStatus = await Promise.all(
-      shows.map(async (show) => {
-        const bookingStatus = await show.isBookingAvailable();
-        return {
-          showId: show._id,
-          movieName: show.movie?.name,
-          showDate: show.showDate,
-          startTime: show.startTime,
-          bookingAvailable: bookingStatus.available,
-          reason: bookingStatus.reason,
-          availableSeats: show.availableSeats
-        };
-      })
-    );
-    
-    res.status(200).json({
-      success: true,
-      data: showsWithStatus
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
+module.exports = {
+  getBookingSettings,
+  updateBookingSettings,
+  getPublicBookingSettings,
+  getPublicShowBookingStatus,
 };
