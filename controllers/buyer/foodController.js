@@ -210,7 +210,7 @@ const clearCart = async (req, res) => {
 const placeOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { deliveryType, specialInstructions, bookingId, paymentMethod } = req.body;
+    const { deliveryType, specialInstructions, bookingId, paymentMethod, scheduledFor } = req.body;
 
     const cart = userCarts[userId];
     if (!cart || !cart.items || cart.items.length === 0) {
@@ -262,11 +262,12 @@ const placeOrder = async (req, res) => {
       deliveryCharge,
       totalAmount,
       paymentStatus: paymentMethod === 'ONLINE' ? 'PENDING' : 'PENDING',
-      orderStatus: 'PENDING',
+      orderStatus: scheduledFor ? 'SCHEDULED' : 'PENDING',
       paymentMethod: paymentMethod || 'ONLINE',
       deliveryType: deliveryType || 'SEAT_DELIVERY',
       specialInstructions: specialInstructions || null,
-      orderedAt: new Date()
+      orderedAt: new Date(),
+      scheduledFor: scheduledFor ? new Date(scheduledFor) : null
     });
 
     // Clear cart
