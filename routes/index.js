@@ -214,6 +214,11 @@ router.get('/admin/booking/all', protect, authorize('SUPER_ADMIN'), getAllBookin
 router.get('/admin/booking-settings', protect, authorize('SUPER_ADMIN'), getBookingSettings);
 router.put('/admin/booking-settings', protect, authorize('SUPER_ADMIN'), updateBookingSettings);
 
+// Food Order Management (Admin)
+router.get('/admin/orders/all', protect, authorize('SUPER_ADMIN'), orderController.getAllSystemOrders);
+router.get('/admin/orders/:orderId', protect, authorize('SUPER_ADMIN'), orderController.getSystemOrderDetails);
+router.put('/admin/orders/update-status/:orderId', protect, authorize('SUPER_ADMIN'), orderController.updateSystemOrderStatus);
+
 // ==================== THEATER OWNER ROUTES ====================
 // Dashboard
 router.get('/theater-owner/dashboard-stats', protect, authorize('THEATER_OWNER'), ownerDashboardStats);
@@ -249,6 +254,7 @@ router.delete('/theater-owner/cart/:productId', protect, authorize('THEATER_OWNE
 router.put('/theater-owner/cart/:productId', protect, authorize('THEATER_OWNER'), updateCartItem);
 router.delete('/theater-owner/cart', protect, authorize('THEATER_OWNER'), clearCart);
 router.post('/theater-owner/order/place', protect, authorize('THEATER_OWNER'), placeOrder);
+router.get('/theater-owner/orders/history', protect, authorize('THEATER_OWNER'), getMyOrders);
 
 // ==================== TICKET VERIFICATION ROUTES ====================
 router.put('/ticket/use/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), markTicketAsUsed);
