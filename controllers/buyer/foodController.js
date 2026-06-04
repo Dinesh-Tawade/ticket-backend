@@ -52,21 +52,21 @@ const addToCart = async (req, res) => {
       };
     }
 
-    if (userCarts[userId].storeId.toString() !== product.storeId._id.toString()) {
+    if (userCarts[userId].storeId && userCarts[userId].storeId.toString() !== product.storeId._id.toString()) {
       return res.status(400).json({ 
         success: false, 
         message: 'Cannot add items from different stores. Please clear cart first.' 
       });
     }
 
-    const existingItem = userCarts[userId].items.find(item => item.productId === productId);
-    
-    if (existingItem) {
-      existingItem.quantity += quantity;
-      existingItem.total = existingItem.price * existingItem.quantity;
+    const itemIndex = userCarts[userId].items.findIndex(item => item.productId.toString() === productId.toString());
+
+    if (itemIndex > -1) {
+      userCarts[userId].items[itemIndex].quantity += quantity;
+      userCarts[userId].items[itemIndex].total = userCarts[userId].items[itemIndex].price * userCarts[userId].items[itemIndex].quantity;
     } else {
       userCarts[userId].items.push({
-        productId: product._id,
+        productId: product._id.toString(),
         productName: product.name,
         quantity: quantity,
         price: product.discountPrice || product.price,
@@ -124,7 +124,7 @@ const updateCartItem = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Cart is empty' });
     }
 
-    const itemIndex = userCarts[userId].items.findIndex(item => item.productId === productId);
+    const itemIndex = userCarts[userId].items.findIndex(item => item.productId.toString() === productId);
     if (itemIndex === -1) {
       return res.status(404).json({ success: false, message: 'Item not found in cart' });
     }
@@ -168,7 +168,7 @@ const removeFromCart = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Cart is empty' });
     }
 
-    userCarts[userId].items = userCarts[userId].items.filter(item => item.productId !== productId);
+    userCarts[userId].items = userCarts[userId].items.filter(item => item.productId.toString() !== productId);
     userCarts[userId].totalAmount = userCarts[userId].items.reduce((sum, item) => sum + item.total, 0);
 
     if (userCarts[userId].items.length === 0) {
@@ -210,7 +210,7 @@ const clearCart = async (req, res) => {
 const placeOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { deliveryType, specialInstructions, bookingId, paymentMethod } = req.body;
+    const { deliveryType, specialInstructions, bookingId, paymentMethod, scheduledFor } = req.body;
 
     const cart = userCarts[userId];
     if (!cart || !cart.items || cart.items.length === 0) {
@@ -262,11 +262,12 @@ const placeOrder = async (req, res) => {
       deliveryCharge,
       totalAmount,
       paymentStatus: paymentMethod === 'ONLINE' ? 'PENDING' : 'PENDING',
-      orderStatus: 'PENDING',
+      orderStatus: scheduledFor ? 'SCHEDULED' : 'PENDING',
       paymentMethod: paymentMethod || 'ONLINE',
       deliveryType: deliveryType || 'SEAT_DELIVERY',
       specialInstructions: specialInstructions || null,
-      orderedAt: new Date()
+      orderedAt: new Date(),
+      scheduledFor: scheduledFor ? new Date(scheduledFor) : null
     });
 
     // Clear cart
@@ -312,6 +313,7 @@ const getMyOrders = async (req, res) => {
     if (status) filter.orderStatus = status;
 
     const orders = await Order.find(filter)
+      .populate('buyerId', 'name email phone')
       .populate('storeId', 'storeName storeLogo')
       .populate('theaterId', 'name location')
       .sort({ orderedAt: -1 });
@@ -331,6 +333,7 @@ const getMyOrders = async (req, res) => {
 const getOrderDetails = async (req, res) => {
   try {
     const order = await Order.findOne({ orderId: req.params.orderId, buyerId: req.user.id })
+      .populate('buyerId', 'name email phone')
       .populate('storeId', 'storeName storeLogo contactNumber')
       .populate('theaterId', 'name location city')
       .populate('items.productId', 'name image category');
