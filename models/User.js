@@ -1,4 +1,4 @@
-﻿const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const CryptoJS = require('crypto-js');
 
@@ -42,7 +42,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['SUPER_ADMIN', 'THEATER_OWNER', 'VENDOR', 'BUYER'],
+    enum: ['SUPER_ADMIN', 'THEATER_OWNER', 'VENDOR', 'BUYER', 'SCANNING_USER'],
     default: 'BUYER'
   },
   status: {

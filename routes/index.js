@@ -14,6 +14,7 @@ const {
   createVendor,
   createBuyer,
   createSuperAdmin,
+  createScanningUser,
   getAllUsers,
   getUserById,
   getUserStats,
@@ -175,6 +176,7 @@ router.post('/admin/create-theater-owner', protect, authorize('SUPER_ADMIN'), cr
 router.post('/admin/create-vendor', protect, authorize('SUPER_ADMIN'), createVendor);
 router.post('/admin/create-buyer', protect, authorize('SUPER_ADMIN'), createBuyer);
 router.post('/admin/create-super-admin', protect, authorize('SUPER_ADMIN'), createSuperAdmin);
+router.post('/admin/create-scanning-user', protect, authorize('SUPER_ADMIN'), createScanningUser);
 router.get('/admin/users', protect, authorize('SUPER_ADMIN'), getAllUsers);
 router.get('/admin/users/:id', protect, authorize('SUPER_ADMIN'), getUserById);
 router.get('/admin/stats', protect, authorize('SUPER_ADMIN'), getUserStats);
@@ -257,9 +259,9 @@ router.post('/theater-owner/order/place', protect, authorize('THEATER_OWNER'), p
 router.get('/theater-owner/orders/history', protect, authorize('THEATER_OWNER'), getMyOrders);
 
 // ==================== TICKET VERIFICATION ROUTES ====================
-router.put('/ticket/use/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), markTicketAsUsed);
-router.get('/ticket/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getTicketDetails);
-router.get('/show/:showId/tickets', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN'), getShowTickets);
+router.put('/ticket/use/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN', 'SCANNING_USER'), markTicketAsUsed);
+router.get('/ticket/:bookingId', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN', 'SCANNING_USER'), getTicketDetails);
+router.get('/show/:showId/tickets', protect, authorize('THEATER_OWNER', 'SUPER_ADMIN', 'SCANNING_USER'), getShowTickets);
 
 // ==================== VENDOR ROUTES ====================
 // Dashboard

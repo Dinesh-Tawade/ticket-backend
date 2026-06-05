@@ -68,6 +68,40 @@ const verifyTicket = async (req, res) => {
       });
     }
 
+    // Show expiration validation (based on date and time)
+    const showDate = new Date(booking.showDate);
+    const today = new Date();
+
+    const showDateZero = new Date(showDate);
+    showDateZero.setHours(0, 0, 0, 0);
+    const todayZero = new Date(today);
+    todayZero.setHours(0, 0, 0, 0);
+
+    if (showDateZero < todayZero) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Show date has expired',
+        isValid: false 
+      });
+    }
+
+    if (showDateZero.getTime() === todayZero.getTime()) {
+      const [hours, minutes] = (booking.showTime || '00:00').split(':').map(Number);
+      const showDateTime = new Date(todayZero);
+      showDateTime.setHours(hours, minutes, 0, 0);
+
+      // Expire 1 hour after the show's start time
+      const expirationTime = new Date(showDateTime.getTime() + 60 * 60 * 1000);
+
+      if (expirationTime < today) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Show date has expired',
+          isValid: false 
+        });
+      }
+    }
+
     // Prepare response
     const responseData = {
       bookingId: booking.bookingId,
@@ -156,18 +190,36 @@ const markTicketAsUsed = async (req, res) => {
       });
     }
 
-    // Show date validation
+    // Show expiration validation (based on date and time)
     const showDate = new Date(booking.showDate);
     const today = new Date();
 
-    showDate.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
+    const showDateZero = new Date(showDate);
+    showDateZero.setHours(0, 0, 0, 0);
+    const todayZero = new Date(today);
+    todayZero.setHours(0, 0, 0, 0);
 
-    if (showDate < today) {
+    if (showDateZero < todayZero) {
       return res.status(400).json({
         success: false,
         message: 'Show date has expired'
       });
+    }
+
+    if (showDateZero.getTime() === todayZero.getTime()) {
+      const [hours, minutes] = (booking.showTime || '00:00').split(':').map(Number);
+      const showDateTime = new Date(todayZero);
+      showDateTime.setHours(hours, minutes, 0, 0);
+
+      // Expire 1 hour after the show's start time
+      const expirationTime = new Date(showDateTime.getTime() + 60 * 60 * 1000);
+
+      if (expirationTime < today) {
+        return res.status(400).json({
+          success: false,
+          message: 'Show date has expired'
+        });
+      }
     }
 
     // Verify Ticket
