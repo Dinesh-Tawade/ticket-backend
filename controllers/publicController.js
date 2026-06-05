@@ -24,12 +24,15 @@ const filterUpcomingTimings = (show) => {
     return null;
   }
   
-  // Filter only upcoming timings
+  // Filter only upcoming timings (with a 1-hour grace period)
   const upcomingTimings = showObj.timings.filter(timing => {
     const showDateUTC = new Date(timing.showDate);
     const [hours, minutes] = timing.startTime.split(':').map(Number);
     showDateUTC.setUTCHours(hours, minutes, 0, 0);
-    return showDateUTC > currentUTC;
+    
+    // Expire 1 hour after show starts
+    const expirationTime = new Date(showDateUTC.getTime() + 60 * 60 * 1000);
+    return expirationTime > currentUTC;
   });
   
   if (upcomingTimings.length === 0) {
@@ -81,8 +84,10 @@ const getAllShows = async (req, res) => {
       
       filter['timings.showDate'] = { $gte: targetDate, $lt: nextDate };
     } else {
-      // If no date specified, only show future shows
-      filter['timings.showDate'] = { $gte: new Date() };
+      // If no date specified, only show shows starting from today onwards
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      filter['timings.showDate'] = { $gte: todayStart };
     }
     
     let shows = await Show.find(filter)
@@ -127,12 +132,13 @@ const getAllShows = async (req, res) => {
 // @route   GET /api/public/shows/trending
 const getTrendingShows = async (req, res) => {
   try {
-    const currentUTC = getCurrentUTC();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
     
     const shows = await Show.find({ 
       'movie.isTrending': true,
       'timings': { $exists: true, $not: { $size: 0 } },
-      'timings.showDate': { $gte: new Date() }
+      'timings.showDate': { $gte: todayStart }
     })
     .populate('theaterId', 'name location city')
     .limit(20);
@@ -423,12 +429,15 @@ const getShowTimings = async (req, res) => {
       return res.status(404).json({ success: false, message: 'No timings found for this show' });
     }
     
-    // Filter upcoming timings
+    // Filter upcoming timings (with a 1-hour grace period)
     const upcomingTimings = show.timings.filter(timing => {
       const showDateUTC = new Date(timing.showDate);
       const [hours, minutes] = timing.startTime.split(':').map(Number);
       showDateUTC.setUTCHours(hours, minutes, 0, 0);
-      return showDateUTC > currentUTC;
+      
+      // Expire 1 hour after show starts
+      const expirationTime = new Date(showDateUTC.getTime() + 60 * 60 * 1000);
+      return expirationTime > currentUTC;
     });
     
     if (upcomingTimings.length === 0) {

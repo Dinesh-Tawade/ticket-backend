@@ -866,6 +866,42 @@ const removeUserSeatAccess = async (req, res) => {
   }
 };
 
+const createScanningUser = async (req, res) => {
+  try {
+    const { name, email, password, phone, address } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: "Name, email and password are required" });
+    }
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ success: false, message: 'User already exists' });
+    }
+    const user = await User.create({
+      name,
+      email,
+      password,
+      phone: phone || null,
+      address: address || null,
+      role: 'SCANNING_USER',
+      status: 'ACTIVE',
+      createdBy: req.user ? req.user.id : null
+    });
+    res.status(201).json({
+      success: true,
+      message: 'Scanning user created successfully',
+      data: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('Create scanning user error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // ==================== EXPORT ALL ====================
 
 module.exports = {
@@ -873,6 +909,7 @@ module.exports = {
   createVendor,
   createBuyer,
   createSuperAdmin,
+  createScanningUser,
   getAllUsers,
   getUserById,
   getUserStats,
