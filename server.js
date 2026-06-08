@@ -10,7 +10,7 @@ const socketIo = require('socket.io');
 // Load env vars
 dotenv.config();
 
-// Connect to database
+// Connect to database - forced restart trigger
 connectDB();
 
 const app = express();

@@ -54,8 +54,7 @@ const seatSchema = new mongoose.Schema({
 const rowSchema = new mongoose.Schema({
   rowId: {
     type: String,
-    required: true,
-    unique: true
+    required: true
   },
   rowName: {
     type: String,  // "A", "B", "C", etc.
@@ -90,8 +89,7 @@ const rowSchema = new mongoose.Schema({
 const zoneSchema = new mongoose.Schema({
   id: {
     type: String,
-    required: true,
-    unique: true
+    required: true
   },
   zoneNumber: {
     type: Number,
