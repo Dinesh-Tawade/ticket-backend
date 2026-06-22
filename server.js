@@ -17,10 +17,10 @@ const app = express();
 const server = http.createServer(app);
 
 // ==================== CONFIG FROM ENV ====================
-const PORT        = process.env.PORT        || 5000;
-const HOST        = process.env.HOST        || 'localhost';
-const NODE_ENV    = process.env.NODE_ENV    || 'development';
-const BODY_LIMIT  = process.env.BODY_LIMIT  || '50mb';
+const PORT = process.env.PORT || 5000;
+const HOST = process.env.HOST || 'localhost';
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const BODY_LIMIT = process.env.BODY_LIMIT || '50mb';
 
 // Parse allowed CORS origins from env  (comma-separated list)
 // Example: CORS_ORIGINS=https://yourapp.com,https://www.yourapp.com
