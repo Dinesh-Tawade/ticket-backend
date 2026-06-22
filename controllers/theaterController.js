@@ -117,7 +117,7 @@ const createTheater = async (req, res) => {
     const totalZones = calculateTotalZones(processedScreens);
     const totalSeats = processedScreens.reduce((sum, screen) => sum + (screen.totalSeatsInScreen || 0), 0);
 
-    const theater = await Theater.create({
+    const theaterData = {
       name,
       location,
       city,
@@ -139,7 +139,33 @@ const createTheater = async (req, res) => {
       hasWheelchair: hasWheelchair !== undefined ? hasWheelchair : (amenities?.hasWheelchair || false),
       createdBy: req.user.id,
       status: 'ACTIVE'
-    });
+    };
+
+    let theater;
+    try {
+      theater = await Theater.create(theaterData);
+    } catch (err) {
+      // If duplicate key error on screens.zones.id, drop the stale unique index and retry
+      if (err.code === 11000 && err.message?.includes('screens.zones.id')) {
+        console.log('⚠️ Detected stale unique index on screens.zones.id — dropping and retrying...');
+        try {
+          await Theater.collection.dropIndex('screens.zones.id_1');
+          console.log('✅ Dropped stale index screens.zones.id_1');
+        } catch (dropErr) {
+          console.log('Index drop attempt:', dropErr.message);
+        }
+        try {
+          await Theater.collection.dropIndex('screens.zones.rows.rowId_1');
+          console.log('✅ Dropped stale index screens.zones.rows.rowId_1');
+        } catch (dropErr) {
+          // ignore
+        }
+        // Retry the create
+        theater = await Theater.create(theaterData);
+      } else {
+        throw err;
+      }
+    }
 
     res.status(201).json({
       success: true,

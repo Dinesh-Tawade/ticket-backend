@@ -398,7 +398,8 @@ const updateUser = async (req, res) => {
     const { 
       name, phone, address, role, status, 
       assignedTheater, storeName, isOpen, 
-      assignedZone, assignedSeats, accessibleSeats
+      assignedZone, assignedSeats, accessibleSeats,
+      password
     } = req.body;
     
     if (name) user.name = name;
@@ -420,6 +421,14 @@ const updateUser = async (req, res) => {
       console.log("Updated accessibleSeats:", user.accessibleSeats);
     }
 
+    // Update password if provided
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
+      }
+      user.password = password;
+    }
+    
     await user.save();
     res.json({ success: true, message: 'User updated successfully', data: user });
   } catch (error) {
