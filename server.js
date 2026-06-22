@@ -75,11 +75,33 @@ uploadDirs.forEach(dir => {
   }
 });
 
-// CORS
-app.use(cors({
-  origin: CORS_ORIGINS,
-  credentials: true
-}));
+// ==================== CORS ====================
+// In production: set CORS_ORIGINS env var on Render as comma-separated URLs
+// e.g. CORS_ORIGINS=https://ticket-frontend-rfda.onrender.com,https://www.yourapp.com
+// In development: defaults to allowing localhost:3000
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+
+    if (CORS_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+
+    console.warn(`🚫 CORS blocked origin: ${origin}`);
+    return callback(new Error(`CORS policy does not allow origin: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+};
+
+app.use(cors(corsOptions));
+
+// Handle preflight OPTIONS requests for all routes
+app.options('*', cors(corsOptions));
+
+console.log(`🌐 CORS allowed origins: ${CORS_ORIGINS.join(', ')}`);
 
 // Body parsing
 app.use(express.json({ limit: BODY_LIMIT }));
