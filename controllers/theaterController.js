@@ -70,15 +70,30 @@ const generateSeatCategoriesFromZones = (screen) => {
       const rows = [];
       for (const row of zone.rows) {
         const seats = [];
-        for (let i = 1; i <= row.seatCount; i++) {
-          seats.push({
-            seatNumber: `${row.rowName}${i}`,
-            seatLabel: row.seats?.find(s => s.columnNumber === i)?.seatLabel || `${row.rowName}${i}`,
-            isBooked: false,
-            bookedBy: null,
-            bookingId: null,
-            price: zone.finalPrice || (zone.basePrice * zone.priceMultiplier)
-          });
+        if (row.seats && row.seats.length > 0) {
+          // Use actual seats from the layout to preserve column numbers, aisles, and custom labels
+          for (const seat of row.seats) {
+            seats.push({
+              seatNumber: seat.seatNumber || `${row.rowName}${seat.columnNumber}`,
+              seatLabel: seat.seatLabel || seat.seatNumber || `${row.rowName}${seat.columnNumber}`,
+              isBooked: seat.isAvailable === false || !!seat.isBooked,
+              bookedBy: seat.bookedBy || null,
+              bookingId: seat.bookingId || null,
+              price: zone.finalPrice || (zone.basePrice * zone.priceMultiplier)
+            });
+          }
+        } else {
+          // Fallback to sequential generation if no seats array is defined
+          for (let i = 1; i <= row.seatCount; i++) {
+            seats.push({
+              seatNumber: `${row.rowName}${i}`,
+              seatLabel: `${row.rowName}${i}`,
+              isBooked: false,
+              bookedBy: null,
+              bookingId: null,
+              price: zone.finalPrice || (zone.basePrice * zone.priceMultiplier)
+            });
+          }
         }
         rows.push({ rowName: row.rowName, seats });
       }
