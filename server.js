@@ -10,28 +10,16 @@ const socketIo = require('socket.io');
 // Load env vars
 dotenv.config();
 
-// Connect to database
+// Connect to database - forced restart trigger
 connectDB();
 
 const app = express();
 const server = http.createServer(app);
 
-// ==================== CONFIG FROM ENV ====================
-const PORT = process.env.PORT || 5000;
-const HOST = process.env.HOST || 'localhost';
-const NODE_ENV = process.env.NODE_ENV || 'development';
-const BODY_LIMIT = process.env.BODY_LIMIT || '50mb';
-
-// Parse allowed CORS origins from env  (comma-separated list)
-// Example: CORS_ORIGINS=https://yourapp.com,https://www.yourapp.com
-const CORS_ORIGINS = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
-  : ['http://localhost:3000'];
-
 // ==================== SOCKET.IO ====================
 const io = socketIo(server, {
   cors: {
-    origin: CORS_ORIGINS,
+    origin: ["http://localhost:3000", "http://192.168.1.10:3000"],
     credentials: true
   }
 });
@@ -62,53 +50,22 @@ io.on('connection', (socket) => {
 
 // ==================== MIDDLEWARE ====================
 // Ensure upload directories exist
-const UPLOAD_BASE = process.env.UPLOAD_PATH || './uploads';
-const uploadDirs = [
-  `${UPLOAD_BASE}/profiles`,
-  `${UPLOAD_BASE}/theaters`,
-  `${UPLOAD_BASE}/products`,
-  `${UPLOAD_BASE}/misc`
-];
+const uploadDirs = ['./uploads/profiles', './uploads/theaters', './uploads/products', './uploads/misc'];
 uploadDirs.forEach(dir => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 });
 
-// ==================== CORS ====================
-// In production: set CORS_ORIGINS env var on Render as comma-separated URLs
-// e.g. CORS_ORIGINS=https://ticket-frontend-rfda.onrender.com,https://www.yourapp.com
-// In development: defaults to allowing localhost:3000
-const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
-    if (!origin) return callback(null, true);
-
-    if (CORS_ORIGINS.includes(origin)) {
-      return callback(null, true);
-    }
-
-    console.warn(`🚫 CORS blocked origin: ${origin}`);
-    return callback(new Error(`CORS policy does not allow origin: ${origin}`));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-};
-
-app.use(cors(corsOptions));
-
-// Handle preflight OPTIONS requests for all routes
-app.options('*', cors(corsOptions));
-
-console.log(`🌐 CORS allowed origins: ${CORS_ORIGINS.join(', ')}`);
+// CORS
+app.use(cors());
 
 // Body parsing
-app.use(express.json({ limit: BODY_LIMIT }));
-app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Serve static files
-app.use('/uploads', express.static(path.join(__dirname, UPLOAD_BASE)));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // API Routes
 app.use('/api', require('./routes/index'));
@@ -124,9 +81,7 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-  if (NODE_ENV !== 'production') {
-    console.error('Error:', err.stack);
-  }
+  console.error('Error:', err.stack);
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Something went wrong!'
@@ -134,12 +89,12 @@ app.use((err, req, res, next) => {
 });
 
 // ==================== START SERVER ====================
-const BASE_URL = process.env.BASE_URL || `http://${HOST}:${PORT}`;
+const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📡 API URL: ${BASE_URL}/api`);
-  console.log(`📁 Uploads URL: ${BASE_URL}/uploads`);
-  console.log(`🔌 Socket URL: ws://${HOST}:${PORT}`);
-  console.log(`✅ Environment: ${NODE_ENV}`);
+  console.log(`📡 API URL: http://localhost:${PORT}/api`);
+  console.log(`📁 Uploads URL: http://localhost:${PORT}/uploads`);
+  console.log(`🔌 Socket URL: ws://localhost:${PORT}`);
+  console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
 });
