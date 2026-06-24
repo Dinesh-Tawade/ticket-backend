@@ -428,7 +428,7 @@ const updateShowStatus = async (req, res) => {
       });
     }
 
-    const validStatuses = ['COMING_SOON', 'BOOKING_OPEN', 'HOUSE_FULL', 'COMPLETED', 'CANCELLED'];
+    const validStatuses = ['COMING_SOON', 'BOOKING_OPEN', 'HOUSE_FULL', 'COMPLETED', 'CANCELLED', 'BOOKING_CLOSED', 'UPCOMING'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ 
         success: false, 
@@ -436,7 +436,31 @@ const updateShowStatus = async (req, res) => {
       });
     }
 
-    show.status = status;
+    const { timingId } = req.body;
+    if (timingId && show.timings && show.timings.length > 0) {
+      const timing = show.timings.id(timingId);
+      if (!timing) {
+        return res.status(404).json({ success: false, message: 'Timing not found' });
+      }
+      timing.status = status;
+      
+      const firstTiming = show.timings[0];
+      show.showDate = firstTiming.showDate;
+      show.startTime = firstTiming.startTime;
+      show.endTime = firstTiming.endTime;
+      show.seatCategories = firstTiming.seatCategories;
+      show.status = firstTiming.status;
+      show.totalSeats = firstTiming.totalSeats;
+      show.availableSeats = firstTiming.availableSeats;
+      show.bookedSeatsCount = firstTiming.bookedSeatsCount;
+    } else {
+      if (show.timings && show.timings.length > 0) {
+        show.timings.forEach(t => {
+          t.status = status;
+        });
+      }
+      show.status = status;
+    }
     await show.save();
 
     res.json({

@@ -795,7 +795,12 @@ const updateShow = async (req, res) => {
       show.availableSeats = firstTiming.availableSeats;
       show.bookedSeatsCount = firstTiming.bookedSeatsCount;
     } else if (status !== undefined) {
-      // Legacy mode
+      // Legacy mode - update all timings and show status
+      if (show.timings && show.timings.length > 0) {
+        show.timings.forEach(t => {
+          t.status = status;
+        });
+      }
       show.status = status;
     }
 
@@ -838,7 +843,12 @@ const updateShowStatus = async (req, res) => {
       show.availableSeats = firstTiming.availableSeats;
       show.bookedSeatsCount = firstTiming.bookedSeatsCount;
     } else {
-      // Legacy mode
+      // Legacy mode - update all timings and show status
+      if (show.timings && show.timings.length > 0) {
+        show.timings.forEach(t => {
+          t.status = status;
+        });
+      }
       show.status = status;
     }
     
