@@ -870,11 +870,14 @@ const deleteShow = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Show not found' });
     }
 
-    // Check for confirmed bookings
+    // Check for confirmed bookings, unless show is cancelled
     const bookings = await Booking.findOne({ showId: req.params.id, bookingStatus: 'CONFIRMED' });
-    if (bookings) {
+    if (bookings && show.status !== 'CANCELLED') {
       return res.status(400).json({ success: false, message: 'Cannot delete show with confirmed bookings' });
     }
+
+    // Clean up associated bookings
+    await Booking.deleteMany({ showId: req.params.id });
 
     await show.deleteOne();
     res.json({ success: true, message: 'Show deleted successfully' });

@@ -156,7 +156,7 @@ const userSchema = new mongoose.Schema({
   // ==================== VENDOR SPECIFIC FIELDS ====================
   vendorType: {
     type: String,
-    enum: ['FOOD', 'BEVERAGE', 'MERCHANDISE', null],
+    enum: ['FOOD', 'BEVERAGES', 'MERCHANDISE', null],
     default: null
   },
   assignedTheater: {
@@ -211,43 +211,43 @@ const userSchema = new mongoose.Schema({
 });
 
 // Hash password before saving
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
   this.password = await bcrypt.hash(this.password, 10);
   next();
 });
 
 // Compare password method
-userSchema.methods.comparePassword = async function(password) {
+userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
 
 // ✅ Helper method to check if buyer can book a seat
-userSchema.methods.canBookSeat = function(theaterId, zoneId, seatNumber) {
+userSchema.methods.canBookSeat = function (theaterId, zoneId, seatNumber) {
   const access = this.accessibleSeats.find(
-    a => a.theaterId.toString() === theaterId.toString() && 
-         a.zoneId === zoneId && 
-         a.isActive === true
+    a => a.theaterId.toString() === theaterId.toString() &&
+      a.zoneId === zoneId &&
+      a.isActive === true
   );
-  
+
   if (!access) return false;
-  
+
   // Check expiry
   if (access.validUntil && new Date() > new Date(access.validUntil)) return false;
-  
+
   // Check if seat is in assigned list
   return access.seatNumbers.includes(seatNumber);
 };
 
 // ✅ Helper method to get all accessible seats for a theater
-userSchema.methods.getAccessibleSeatsForTheater = function(theaterId) {
+userSchema.methods.getAccessibleSeatsForTheater = function (theaterId) {
   const access = this.accessibleSeats.find(
     a => a.theaterId.toString() === theaterId.toString() && a.isActive === true
   );
-  
+
   if (!access) return [];
   if (access.validUntil && new Date() > new Date(access.validUntil)) return [];
-  
+
   return access.seatNumbers;
 };
 
