@@ -22,7 +22,7 @@ const createSuperAdmin = async () => {
 
     // Create super admin with encrypted fields
     const superAdmin = await User.create({
-      name: 'Super Admin',      // Mongoose schema auto-encrypt karega
+      name: 'Super Admin',      
       email: 'superadmin@bookingapp.com',
       password: 'SuperAdmin123!',
       phone: '9999999999',

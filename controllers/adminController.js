@@ -349,7 +349,9 @@ const getAllUsers = async (req, res) => {
     if (role) filter.role = role;
     if (status) filter.status = status;
     
-    const users = await User.find(filter).select('-password');
+    const users = await User.find(filter)
+      .populate('assignedTheater', 'name location city')
+      .select('-password');
     res.json({ success: true, count: users.length, data: users });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

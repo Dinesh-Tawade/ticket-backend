@@ -202,10 +202,40 @@ const getAllTheaters = async (req, res) => {
     if (ownerId) filter.ownerId = ownerId;
 
     const theaters = await Theater.find(filter)
-      .populate('ownerId', 'name email phone')
+      .populate('ownerId', 'name email phone role status')
       .sort({ createdAt: -1 });
 
-    res.json({ success: true, count: theaters.length, data: theaters });
+    const Store = require('../models/Store');
+    const allStores = await Store.find({ status: 'ACTIVE' }).populate('vendorId', 'name email phone');
+    const vendorUsers = await User.find({ role: 'VENDOR' }).select('name email phone assignedTheater storeName vendorType status');
+
+    const formattedTheaters = theaters.map(t => {
+      const tObj = t.toObject();
+      const linkedStore = allStores.find(s => s.assignedTheater?.toString() === t._id.toString());
+      const linkedVendors = vendorUsers.filter(v => 
+        v.assignedTheater?.toString() === t._id.toString() || 
+        (t.ownerId && v.assignedTheater?.toString() === t.ownerId._id?.toString())
+      );
+
+      tObj.assignedVendor = linkedStore ? {
+        storeName: linkedStore.storeName,
+        vendorName: linkedStore.vendorId?.name || 'Vendor',
+        email: linkedStore.vendorId?.email,
+        phone: linkedStore.vendorId?.phone || linkedStore.contactNumber,
+        isOpen: linkedStore.isOpen
+      } : (linkedVendors.length > 0 ? {
+        storeName: linkedVendors[0].storeName || 'Food Vendor',
+        vendorName: linkedVendors[0].name,
+        email: linkedVendors[0].email,
+        phone: linkedVendors[0].phone,
+        isOpen: true
+      } : null);
+
+      tObj.assignedVendorsList = linkedVendors;
+      return tObj;
+    });
+
+    res.json({ success: true, count: formattedTheaters.length, data: formattedTheaters });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -214,14 +244,34 @@ const getAllTheaters = async (req, res) => {
 const getTheaterById = async (req, res) => {
   try {
     const theater = await Theater.findById(req.params.id)
-      .populate('ownerId', 'name email phone')
+      .populate('ownerId', 'name email phone role status')
       .populate('createdBy', 'name email');
 
     if (!theater) {
       return res.status(404).json({ success: false, message: 'Theater not found' });
     }
 
-    res.json({ success: true, data: theater });
+    const Store = require('../models/Store');
+    const linkedStore = await Store.findOne({ assignedTheater: theater._id }).populate('vendorId', 'name email phone');
+    const linkedVendors = await User.find({ role: 'VENDOR', $or: [{ assignedTheater: theater._id }, { assignedTheater: theater.ownerId?._id }] }).select('name email phone storeName vendorType status');
+
+    const tObj = theater.toObject();
+    tObj.assignedVendor = linkedStore ? {
+      storeName: linkedStore.storeName,
+      vendorName: linkedStore.vendorId?.name || 'Vendor',
+      email: linkedStore.vendorId?.email,
+      phone: linkedStore.vendorId?.phone || linkedStore.contactNumber,
+      isOpen: linkedStore.isOpen
+    } : (linkedVendors.length > 0 ? {
+      storeName: linkedVendors[0].storeName || 'Food Vendor',
+      vendorName: linkedVendors[0].name,
+      email: linkedVendors[0].email,
+      phone: linkedVendors[0].phone,
+      isOpen: true
+    } : null);
+    tObj.assignedVendorsList = linkedVendors;
+
+    res.json({ success: true, data: tObj });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

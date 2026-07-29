@@ -8,7 +8,10 @@ const Booking = require('../models/Booking');
 // @route   GET /api/theater-owner/my-theaters
 const getMyTheaters = async (req, res) => {
   try {
-    const theaters = await Theater.find();
+    let theaters = await Theater.find({ ownerId: req.user.id });
+    if (!theaters || theaters.length === 0) {
+      theaters = await Theater.find();
+    }
 
     res.json({
       success: true,

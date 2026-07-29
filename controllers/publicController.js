@@ -91,14 +91,40 @@ const getAllShows = async (req, res) => {
     }
     
     let shows = await Show.find(filter)
-      .populate('theaterId', 'name location city')
+      .populate({
+        path: 'theaterId',
+        select: 'name location city ownerId',
+        populate: { path: 'ownerId', select: 'name email phone role' }
+      })
       .sort({ createdAt: -1 });
+
+    const Store = require('../models/Store');
+    const stores = await Store.find({ status: 'ACTIVE' }).populate('vendorId', 'name email phone');
+    const vendorUsers = await User.find({ role: 'VENDOR' }).select('name email phone assignedTheater storeName vendorType status');
     
     // Filter each show's timings to only upcoming ones
     const upcomingShows = [];
     for (const show of shows) {
       const filteredShow = filterUpcomingTimings(show);
       if (filteredShow) {
+        // Attach vendor details to theaterId if populated
+        if (filteredShow.theaterId && typeof filteredShow.theaterId === 'object') {
+          const tId = filteredShow.theaterId._id?.toString();
+          const linkedStore = stores.find(s => s.assignedTheater?.toString() === tId);
+          const linkedVendor = vendorUsers.find(v => v.assignedTheater?.toString() === tId);
+          
+          filteredShow.theaterId.assignedVendor = linkedStore ? {
+            storeName: linkedStore.storeName,
+            vendorName: linkedStore.vendorId?.name || 'Vendor',
+            email: linkedStore.vendorId?.email,
+            phone: linkedStore.vendorId?.phone || linkedStore.contactNumber
+          } : (linkedVendor ? {
+            storeName: linkedVendor.storeName || 'Food Vendor',
+            vendorName: linkedVendor.name,
+            email: linkedVendor.email,
+            phone: linkedVendor.phone
+          } : null);
+        }
         upcomingShows.push(filteredShow);
       }
     }
@@ -132,6 +158,7 @@ const getAllShows = async (req, res) => {
 // @route   GET /api/public/shows/trending
 const getTrendingShows = async (req, res) => {
   try {
+    const currentUTC = getCurrentUTC();
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     
@@ -164,35 +191,6 @@ const getTrendingShows = async (req, res) => {
   }
 };
 
-// Helper function to get buyer's accessible seats
-const getBuyerAccessibleSeats = async (userId, theaterId, screenId) => {
-  if (!userId) return null;
-  
-  try {
-    const user = await User.findById(userId);
-    if (!user || user.role !== 'BUYER') return null;
-    
-    // Find access for this theater
-    const access = user.accessibleSeats?.find(
-      a => a.theaterId?.toString() === theaterId?.toString() && a.isActive === true
-    );
-    
-    if (!access) return null;
-    
-    // Check expiry
-    if (access.validUntil && new Date() > new Date(access.validUntil)) return null;
-    
-    return {
-      zoneId: access.zoneId,
-      zoneName: access.zoneName,
-      seatNumbers: access.seatNumbers || []
-    };
-  } catch (error) {
-    console.error("Error getting buyer accessible seats:", error);
-    return null;
-  }
-};
-
 // @desc    Get show by ID (with seat layout) - Only if upcoming
 // @route   GET /api/public/shows/:id
 const getShowById = async (req, res) => {
@@ -200,7 +198,11 @@ const getShowById = async (req, res) => {
     const currentUTC = getCurrentUTC();
     
     const show = await Show.findById(req.params.id)
-      .populate('theaterId', 'name location city contactNumber screens');
+      .populate({
+        path: 'theaterId',
+        select: 'name location city contactNumber screens ownerId',
+        populate: { path: 'ownerId', select: 'name email phone role' }
+      });
     
     if (!show) {
       return res.status(404).json({ success: false, message: 'Show not found' });
@@ -216,8 +218,79 @@ const getShowById = async (req, res) => {
     }
 
     // Get theater data for zone colors
-    const theater = await Theater.findById(show.theaterId._id);
+    const theater = await Theater.findById(show.theaterId._id).populate('ownerId', 'name email phone role');
     
+    // Find vendor store or vendor user
+    const Store = require('../models/Store');
+    const linkedStore = await Store.findOne({ assignedTheater: theater?._id }).populate('vendorId', 'name email phone');
+    const linkedVendorUser = await User.findOne({ role: 'VENDOR', assignedTheater: theater?._id }).select('name email phone storeName vendorType');
+    
+    const assignedVendor = linkedStore ? {
+      storeName: linkedStore.storeName,
+      vendorName: linkedStore.vendorId?.name || 'Vendor',
+      email: linkedStore.vendorId?.email,
+      phone: linkedStore.vendorId?.phone || linkedStore.contactNumber,
+      isOpen: linkedStore.isOpen
+    } : (linkedVendorUser ? {
+      storeName: linkedVendorUser.storeName || 'Food Vendor',
+      vendorName: linkedVendorUser.name,
+      email: linkedVendorUser.email,
+      phone: linkedVendorUser.phone,
+      isOpen: true
+    } : null);
+
+    // Fetch ALL other theaters playing this movie
+    const movieShows = await Show.find({
+      'movie.name': show.movie?.name,
+      'timings': { $exists: true, $not: { $size: 0 } }
+    }).populate({
+      path: 'theaterId',
+      select: 'name location city contactNumber screens ownerId',
+      populate: { path: 'ownerId', select: 'name email phone role' }
+    });
+
+    const allTheatersForMovie = [];
+    const seenTheaters = new Set();
+
+    for (const mShow of movieShows) {
+      const fMShow = filterUpcomingTimings(mShow);
+      if (fMShow && fMShow.theaterId) {
+        const tId = fMShow.theaterId._id.toString();
+        if (!seenTheaters.has(tId)) {
+          seenTheaters.add(tId);
+          
+          const mStore = await Store.findOne({ assignedTheater: tId }).populate('vendorId', 'name email phone');
+          const mVendor = mStore ? {
+            storeName: mStore.storeName,
+            vendorName: mStore.vendorId?.name || 'Vendor',
+            email: mStore.vendorId?.email,
+            phone: mStore.vendorId?.phone || mStore.contactNumber
+          } : null;
+
+          allTheatersForMovie.push({
+            showId: fMShow._id,
+            theaterId: fMShow.theaterId._id,
+            theaterName: fMShow.theaterId.name,
+            location: fMShow.theaterId.location,
+            city: fMShow.theaterId.city,
+            contactNumber: fMShow.theaterId.contactNumber,
+            ownerInfo: fMShow.theaterId.ownerId ? {
+              name: fMShow.theaterId.ownerId.name,
+              email: fMShow.theaterId.ownerId.email,
+              phone: fMShow.theaterId.ownerId.phone
+            } : null,
+            assignedVendor: mVendor,
+            timings: fMShow.timings || [],
+            basePrice: fMShow.basePrice,
+            availableSeats: fMShow.availableSeats,
+            totalSeats: fMShow.totalSeats,
+            isPaid: fMShow.isPaid,
+            isCurrent: tId === theater?._id.toString()
+          });
+        }
+      }
+    }
+
     // Find the screen in theater that matches show's screenId
     const screen = theater?.screens?.find(s => s._id.toString() === show.screenId.toString());
     
@@ -226,7 +299,6 @@ const getShowById = async (req, res) => {
     
     // Prepare seat categories with proper formatting and access control
     const formattedSeatCategories = filteredShow.seatCategories?.map(category => {
-      // Check if this zone is accessible to buyer
       const isZoneAccessible = buyerAccess ? (buyerAccess.zoneName === category.category) : true;
       
       return {
@@ -238,7 +310,6 @@ const getShowById = async (req, res) => {
         rows: category.rows?.map(row => ({
           rowName: row.rowName,
           seats: row.seats?.map(seat => {
-            // Check if this specific seat is accessible to buyer
             const isSeatAccessible = buyerAccess 
               ? (buyerAccess.seatNumbers.includes(seat.seatNumber) && isZoneAccessible)
               : true;
@@ -263,6 +334,12 @@ const getShowById = async (req, res) => {
           screens: theater?.screens || show.theaterId.screens || [],
           layoutMeta: theater?.layoutMeta || {},
           screenPosition: theater?.screenPosition || 'top',
+          assignedVendor: assignedVendor,
+          ownerInfo: theater?.ownerId ? {
+            name: theater.ownerId.name,
+            email: theater.ownerId.email,
+            phone: theater.ownerId.phone
+          } : null
         }
       : null;
 
@@ -270,6 +347,8 @@ const getShowById = async (req, res) => {
     const responseData = {
       ...filteredShow,
       theaterId: theaterForClient || show.theaterId,
+      assignedVendor: assignedVendor,
+      allTheatersForMovie: allTheatersForMovie,
       seatCategories: formattedSeatCategories,
       theaterLayout: {
         screenPosition: theater?.screenPosition || "top",

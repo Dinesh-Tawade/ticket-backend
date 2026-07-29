@@ -4,6 +4,7 @@ const Order = require('../../models/Order');
 const PaymentTransaction = require('../../models/PaymentTransaction');
 const Theater = require('../../models/Theater');
 const Show = require('../../models/Show');
+const User = require('../../models/User');
 
 // Temporary cart storage (in production use Redis or Database)
 let userCarts = {};
@@ -43,7 +44,7 @@ const addToCart = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Product out of stock' });
     }
 
-    if (!userCarts[userId]) {
+    if (!userCarts[userId] || userCarts[userId].items.length === 0) {
       userCarts[userId] = {
         items: [],
         storeId: product.storeId._id,
@@ -52,10 +53,17 @@ const addToCart = async (req, res) => {
       };
     }
 
-    if (userCarts[userId].storeId && userCarts[userId].storeId.toString() !== product.storeId._id.toString()) {
+    if (userCarts[userId].storeId && userCarts[userId].items.length > 0 && userCarts[userId].storeId.toString() !== product.storeId._id.toString()) {
+      const existingStore = await Store.findById(userCarts[userId].storeId);
+      const existingStoreName = existingStore ? existingStore.storeName : 'another vendor';
+      const newStoreName = product.storeId?.storeName || 'the selected vendor';
+
       return res.status(400).json({ 
         success: false, 
-        message: 'Cannot add items from different stores. Please clear cart first.' 
+        code: 'DIFFERENT_VENDOR_CART',
+        existingStoreName,
+        newStoreName,
+        message: `At one time you can order from one vendor only. Your cart contains items from "${existingStoreName}". Clear your cart to order from "${newStoreName}".` 
       });
     }
 
@@ -488,45 +496,91 @@ const getTheaterProducts = async (req, res) => {
     const { theaterId } = req.params;
     const { category } = req.query;
 
-    let store = await Store.findOne({ assignedTheater: theaterId, isOpen: true });
-    
-    if (!store) {
-      const theater = await Theater.findById(theaterId);
-      if (theater) {
-        store = await Store.findOne({ assignedTheater: theater.ownerId, isOpen: true });
-      }
+    const theater = await Theater.findById(theaterId);
+    let stores = await Store.find({
+      $or: [
+        { assignedTheater: theaterId },
+        ...(theater && theater.ownerId ? [{ assignedTheater: theater.ownerId }] : [])
+      ]
+    }).populate('vendorId', 'name email phone');
+
+    // Also check for vendor users assigned to this theater
+    const vendorUsers = await User.find({
+      role: 'VENDOR',
+      $or: [
+        { assignedTheater: theaterId },
+        ...(theater && theater.ownerId ? [{ assignedTheater: theater.ownerId }] : [])
+      ]
+    });
+
+    if (vendorUsers.length > 0) {
+      const vStoreUsers = vendorUsers.map(v => v._id);
+      const userStores = await Store.find({ vendorId: { $in: vStoreUsers } }).populate('vendorId', 'name email phone');
+      userStores.forEach(s => {
+        if (!stores.some(existing => existing._id.toString() === s._id.toString())) {
+          stores.push(s);
+        }
+      });
     }
 
-    if (!store) {
+    if (!stores || stores.length === 0) {
+      stores = await Store.find({ status: 'ACTIVE' }).populate('vendorId', 'name email phone');
+    }
+
+    if (!stores || stores.length === 0) {
       return res.status(404).json({ 
         success: false, 
         message: 'No store found for this theater',
         debug: { theaterId }
       });
     }
-    
-    let filter = { storeId: store._id, isAvailable: true, stock: { $gt: 0 } };
+
+    const storeIds = stores.map(s => s._id);
+    let filter = { storeId: { $in: storeIds } };
     if (category) filter.category = category;
 
     const products = await Product.find(filter).sort({ createdAt: -1 });
 
-    const groupedProducts = products.reduce((acc, product) => {
+    // Group products by category across all stores, attaching store information to each product
+    const formattedProducts = products.map(p => {
+      const pObj = p.toObject();
+      const pStore = stores.find(s => s._id.toString() === p.storeId?.toString());
+      pObj.storeInfo = pStore ? {
+        id: pStore._id,
+        name: pStore.storeName,
+        vendorName: pStore.vendorId?.name || 'Vendor',
+        email: pStore.vendorId?.email,
+        phone: pStore.vendorId?.phone || pStore.contactNumber
+      } : null;
+      return pObj;
+    });
+
+    const groupedProducts = formattedProducts.reduce((acc, product) => {
       if (!acc[product.category]) acc[product.category] = [];
       acc[product.category].push(product);
       return acc;
     }, {});
 
+    const formattedStores = stores.map(s => ({
+      id: s._id,
+      name: s.storeName,
+      logo: s.storeLogo,
+      isOpen: s.isOpen,
+      openingTime: s.openingTime,
+      closingTime: s.closingTime,
+      vendorName: s.vendorId?.name || 'Vendor',
+      email: s.vendorId?.email,
+      phone: s.vendorId?.phone || s.contactNumber
+    }));
+
     res.json({
       success: true,
       data: {
-        store: {
-          id: store._id,
-          name: store.storeName,
-          logo: store.storeLogo,
-          isOpen: store.isOpen
-        },
+        stores: formattedStores,
+        store: formattedStores[0] || null,
         categories: Object.keys(groupedProducts),
-        products: groupedProducts
+        products: groupedProducts,
+        allProducts: formattedProducts
       }
     });
   } catch (error) {
