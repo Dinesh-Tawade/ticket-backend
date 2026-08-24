@@ -184,6 +184,10 @@ const showSchema = new mongoose.Schema({
     default: Date.now,
     index: true
   },
+  expireAt: {
+    type: Date,
+    expires: 0 // Document will be automatically deleted at this time
+  },
 
   // ✅ NEW: Multiple timings support
   timings: [showTimingSchema],
@@ -270,6 +274,34 @@ showSchema.virtual('occupancyRate').get(function () {
 
 // ==================== PRE-SAVE MIDDLEWARE ====================
 showSchema.pre('save', function (next) {
+  // Calculate expireAt based on the latest timing
+  let latestExpireTime = new Date(0);
+
+  if (this.timings && this.timings.length > 0) {
+    this.timings.forEach(t => {
+      let d = new Date(t.showDate);
+      if (t.endTime) {
+        const [hours, minutes] = t.endTime.split(':');
+        d.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+      } else {
+         d.setHours(23, 59, 59, 999);
+      }
+      if (d > latestExpireTime) latestExpireTime = d;
+    });
+  } else if (this.showDate) {
+    latestExpireTime = new Date(this.showDate);
+    if (this.endTime) {
+      const [hours, minutes] = this.endTime.split(':');
+      latestExpireTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    } else {
+       latestExpireTime.setHours(23, 59, 59, 999);
+    }
+  }
+
+  if (latestExpireTime.getTime() > 0) {
+    this.expireAt = latestExpireTime;
+  }
+
   // If timings exist, sync legacy fields from first timing (for backward compatibility)
   if (this.timings && this.timings.length > 0) {
     const firstTiming = this.timings[0];

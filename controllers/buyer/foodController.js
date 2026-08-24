@@ -501,12 +501,14 @@ const getTheaterProducts = async (req, res) => {
       $or: [
         { assignedTheater: theaterId },
         ...(theater && theater.ownerId ? [{ assignedTheater: theater.ownerId }] : [])
-      ]
-    }).populate('vendorId', 'name email phone');
+      ],
+      status: 'ACTIVE'
+    }).populate('vendorId', 'name email phone status');
 
     // Also check for vendor users assigned to this theater
     const vendorUsers = await User.find({
       role: 'VENDOR',
+      status: 'ACTIVE',
       $or: [
         { assignedTheater: theaterId },
         ...(theater && theater.ownerId ? [{ assignedTheater: theater.ownerId }] : [])
@@ -515,7 +517,7 @@ const getTheaterProducts = async (req, res) => {
 
     if (vendorUsers.length > 0) {
       const vStoreUsers = vendorUsers.map(v => v._id);
-      const userStores = await Store.find({ vendorId: { $in: vStoreUsers } }).populate('vendorId', 'name email phone');
+      const userStores = await Store.find({ vendorId: { $in: vStoreUsers }, status: 'ACTIVE' }).populate('vendorId', 'name email phone status');
       userStores.forEach(s => {
         if (!stores.some(existing => existing._id.toString() === s._id.toString())) {
           stores.push(s);
@@ -524,13 +526,16 @@ const getTheaterProducts = async (req, res) => {
     }
 
     if (!stores || stores.length === 0) {
-      stores = await Store.find({ status: 'ACTIVE' }).populate('vendorId', 'name email phone');
+      stores = await Store.find({ status: 'ACTIVE' }).populate('vendorId', 'name email phone status');
     }
+
+    // Filter out stores with deleted or inactive vendors
+    stores = stores.filter(s => s.vendorId != null && s.vendorId.status === 'ACTIVE');
 
     if (!stores || stores.length === 0) {
       return res.status(404).json({ 
         success: false, 
-        message: 'No store found for this theater',
+        message: 'No active store found for this theater',
         debug: { theaterId }
       });
     }
